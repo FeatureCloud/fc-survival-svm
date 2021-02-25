@@ -1,58 +1,117 @@
 import numpy as np
-from sklearn.linear_model import LinearRegression
+from scipy.special._ufuncs import expit
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.utils.extmath import softmax
+from sklearn.utils.validation import check_is_fitted
 
 
-class Client(LinearRegression):
-
+class Client(LogisticRegression):
+    beta_global = None
+    classes_ = None
     coef_ = None
     intercept_ = None
+    n_features = None
+    n_samples = None
 
     def set_coefs(self, coef):
-        self.coef_ = coef[1:]
-        self.intercept_ = coef[0]
+        self.coef_ = np.asmatrix(coef[1:])
+        self.intercept_ = np.ravel(coef[0])
 
-    def local_computation(self, X, y, eps=None):
-
-        def add_dp(org_matrix, epsilon):
-            if eps:
-                sensitivity = np.max(np.sum(np.abs(org_matrix), axis=0))
-                mean = 0
-                lambda_laplace = sensitivity / epsilon
-                noise_matrix = np.random.laplace(mean, lambda_laplace, size=org_matrix.shape)
-
-                return org_matrix + noise_matrix
-            else:
-                return org_matrix
-
+    def init(self, X, y):
         column_one = np.ones((X.shape[0], 1)).astype(np.uint8)
+        if not isinstance(X, np.ndarray):
+            X = X.to_numpy()
         X = np.concatenate((column_one, X), axis=1)
-        XT_X_matrix = add_dp(np.dot(X.T, X), epsilon=eps)
-        XT_y_vector = add_dp(np.dot(X.T, y), epsilon=eps)
+        if not isinstance(y, np.ndarray):
+            y = y.to_numpy()
 
-        return XT_X_matrix, XT_y_vector
+        self.beta_global = np.zeros(X.shape[1])
+        self.classes_ = np.unique(np.ravel(y))
+
+        return X, y, self.beta_global
+
+    def compute_derivatives(self, X, y, beta):
+        self.beta_global = beta
+
+        def gradient(X, y, beta):
+            return X.T.dot((1 / (1 + 1 / np.exp(X.dot(beta))) - y))
+
+        def hessian(X, beta):
+            return X.T.dot((np.diag(np.ravel(np.exp(X.dot(beta)) / np.power(1 + np.exp(X.dot(beta)), 2))).dot(X)))
+
+        grad = gradient(X, y, beta)
+        hess = hessian(X, beta)
+
+        return [grad, hess]
 
     def predict(self, X):
-        return np.dot(X, self.coef_) + self.intercept_
+        scores = np.ravel(self.decision_function(X))
+        if len(scores.shape) == 1:
+            indices = (scores > 0).astype(int)
+        else:
+            indices = scores.argmax(axis=1)
+
+        return self.classes_[indices]
+
+    def _predict_proba_lr(self, X):
+        prob = np.ravel(self.decision_function(X))
+        expit(prob, out=prob)
+        if prob.ndim == 1:
+            return np.vstack([1 - prob, prob]).T
+        else:
+            # OvR normalization, like LibLinear's predict_probability
+            prob /= prob.sum(axis=1).reshape((prob.shape[0], -1))
+            return prob
+
+    def predict_proba(self, X):
+        check_is_fitted(self)
+
+        ovr = (self.multi_class in ["ovr", "warn"] or
+               (self.multi_class == 'auto' and (self.classes_.size <= 2 or
+                                                self.solver == 'liblinear')))
+        if ovr:
+            return self._predict_proba_lr(X)
+        else:
+            decision = self.decision_function(X)
+            if decision.ndim == 1:
+                # Workaround for multi_class="multinomial" and binary outcomes
+                # which requires softmax prediction with only a 1D decision.
+                decision_2d = np.c_[-decision, decision]
+            else:
+                decision_2d = decision
+            return softmax(decision_2d, copy=False)
 
 
 class Coordinator(Client):
-
-    def aggregate_matrices_(self, matrices):
-        matrix = matrices[0]
-        for i in range(1, len(matrices)):
-            matrix = np.add(matrix, matrices[i])
-        matrix_global = matrix
-
-        return matrix_global
+    iteration_count = 0
+    beta_global = None
+    tol = 1e9
 
     def aggregate_beta(self, local_results):
-        XT_X_matrices = [client[0] for client in local_results]
-        XT_X_matrix_global = self.aggregate_matrices_(XT_X_matrices)
+        if "early_stop" in local_results:
+            return self.beta_global, True
+        self.iteration_count += 1
 
-        XT_y_vectors = [client[1] for client in local_results]
-        XT_y_vector_global = self.aggregate_matrices_(XT_y_vectors)
+        gradients = [client[0] for client in local_results]
+        hessians = [client[1] for client in local_results]
 
-        XT_X_matrix_inverse = np.linalg.inv(XT_X_matrix_global)
-        beta_vector = np.dot(XT_X_matrix_inverse, XT_y_vector_global)
+        gradient_global = gradients[0]
+        for i in range(1, len(gradients)):
+            gradient_global = gradient_global + gradients[i]
 
-        return beta_vector
+        hessian_global = hessians[0]
+        for i in range(1, len(hessians)):
+            hessian_global = hessian_global + hessians[i]
+
+        updated_beta = self.beta_global - np.linalg.inv(hessian_global).dot(gradient_global)
+        if np.isnan(updated_beta).any():
+            print("Overflow error. Stopped early.")
+            return self.beta_global, True
+        else:
+            self.beta_global = updated_beta
+        if np.linalg.norm(gradient_global) > self.tol:
+            finished = False
+        else:
+            finished = True
+        return self.beta_global, finished

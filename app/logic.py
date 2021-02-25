@@ -6,8 +6,6 @@ import joblib
 import jsonpickle
 import pandas as pd
 import yaml
-from sklearn.metrics import mean_squared_error, r2_score, explained_variance_score, max_error, mean_absolute_error, \
-    mean_absolute_percentage_error, median_absolute_error
 from sklearn.model_selection import train_test_split
 
 from app.algo import Coordinator, Client
@@ -52,15 +50,20 @@ class AppLogic:
         self.y = None
         self.X_test = None
         self.y_test = None
+        self.beta = None
+        self.iter_counter = 0
+        self.beta_finished = None
+        self.max_iter = None
 
     def read_config(self):
         with open(self.INPUT_DIR + '/config.yml') as f:
-            config = yaml.load(f, Loader=yaml.FullLoader)['fc_linear_regression']
+            config = yaml.load(f, Loader=yaml.FullLoader)['fc_logistic_regression']
             self.input = config['files']['input']
             self.sep = config['files']['sep']
             self.label_column = config['files']['label_column']
             self.test_size = config['evaluation']['test_size']
             self.random_state = config['evaluation']['random_state']
+            self.max_iter = 10000
 
         shutil.copyfile(self.INPUT_DIR + '/config.yml', self.OUTPUT_DIR + '/config.yml')
 
@@ -91,11 +94,12 @@ class AppLogic:
         # === States ===
         state_initializing = 1
         state_read_input = 2
-        state_local_computation = 3
-        state_wait_for_aggregation = 4
-        state_global_aggregation = 5
-        state_writing_results = 6
-        state_finishing = 7
+        state_preprocessing = 3
+        state_local_computation = 4
+        state_wait_for_aggregation = 5
+        state_global_aggregation = 6
+        state_writing_results = 7
+        state_finishing = 8
 
         # Initial state
         state = state_initializing
@@ -105,12 +109,13 @@ class AppLogic:
             if state == state_initializing:
                 print("Initializing")
                 if self.id is not None:  # Test if setup has happened already
-                    state = state_read_input
                     print("Coordinator", self.coordinator)
                     if self.coordinator:
                         self.client = Coordinator()
                     else:
                         self.client = Client()
+                    state = state_read_input
+
             if state == state_read_input:
                 print('Read input and config')
                 self.read_config()
@@ -125,13 +130,22 @@ class AppLogic:
                     self.X, self.X_test, self.y, self.y_test = train_test_split(self.X, self.y,
                                                                                 test_size=self.test_size,
                                                                                 random_state=self.random_state)
-                state = state_local_computation
-            if state == state_local_computation:
-                print("Perform local computation")
-                self.progress = 'local computation'
-                xtx, xty = self.client.local_computation(self.X, self.y)
+                state = state_preprocessing
 
-                data_to_send = jsonpickle.encode([xtx, xty])
+            if state == state_preprocessing:
+                self.X, self.y, self.beta = self.client.init(self.X, self.y)
+                state = state_local_computation
+
+            if state == state_local_computation:
+                print("Perform local beta update")
+                self.progress = 'local beta update'
+                self.iter_counter = self.iter_counter + 1
+                try:
+                    data_to_send = self.client.compute_derivatives(self.X, self.y, self.beta)
+                except FloatingPointError:
+                    data_to_send = "early_stop"
+
+                data_to_send = jsonpickle.encode(data_to_send)
 
                 if self.coordinator:
                     self.data_incoming.append(data_to_send)
@@ -141,15 +155,21 @@ class AppLogic:
                     self.status_available = True
                     state = state_wait_for_aggregation
                     print(f'[CLIENT] Sending computation data to coordinator', flush=True)
+
             if state == state_wait_for_aggregation:
                 print("Wait for aggregation")
                 self.progress = 'wait for aggregation'
                 if len(self.data_incoming) > 0:
                     print("Received aggregation data from coordinator.")
-                    global_coefs = jsonpickle.decode(self.data_incoming[0])
+                    data_decoded = jsonpickle.decode(self.data_incoming[0])
+                    self.beta, self.beta_finished = data_decoded[0], data_decoded[1]
                     self.data_incoming = []
-                    self.client.set_coefs(global_coefs)
-                    state = state_writing_results
+                    if not self.beta_finished and self.iter_counter < self.max_iter:
+                        state = state_local_computation
+                    else:
+                        print("Beta update finished.")
+                        self.client.set_coefs(self.beta)
+                        state = state_writing_results
 
             # GLOBAL PART
 
@@ -159,13 +179,18 @@ class AppLogic:
                 if len(self.data_incoming) == len(self.clients):
                     data = [jsonpickle.decode(client_data) for client_data in self.data_incoming]
                     self.data_incoming = []
-                    aggregated_beta = self.client.aggregate_beta(data)
-                    self.client.set_coefs(aggregated_beta)
-                    data_to_broadcast = jsonpickle.encode(aggregated_beta)
+                    self.beta, self.beta_finished = self.client.aggregate_beta(data)
+                    data_to_broadcast = jsonpickle.encode([self.beta, self.beta_finished])
                     self.data_outgoing = data_to_broadcast
                     self.status_available = True
-                    state = state_writing_results
                     print(f'[COORDINATOR] Broadcasting computation data to clients', flush=True)
+                    if not self.beta_finished and self.iter_counter < self.max_iter:
+                        state = state_local_computation
+                    else:
+                        print("Beta update finished.")
+                        self.client.set_coefs(self.beta)
+                        state = state_writing_results
+
             if state == state_writing_results:
                 print("Writing results")
                 # now you can save it to a file
@@ -174,25 +199,14 @@ class AppLogic:
                 model = self.client
 
                 if self.test_size is not None:
-                    # Make predictions using the testing set
                     y_pred = model.predict(self.X_test)
-
-                    # The mean squared error
-                    scores = {
-                        "r2_score": [r2_score(self.y_test, y_pred)],
-                        "explained_variance_score": [explained_variance_score(self.y_test, y_pred)],
-                        "max_error": [max_error(self.y_test, y_pred)],
-                        "mean_absolute_error": [mean_absolute_error(self.y_test, y_pred)],
-                        "mean_squared_error": [mean_squared_error(self.y_test, y_pred)],
-                        "mean_absolute_percentage_error": [mean_absolute_percentage_error(self.y_test, y_pred)],
-                        "median_absolute_error": [median_absolute_error(self.y_test, y_pred)]
-                    }
-
-                    scores_df = pd.DataFrame.from_dict(scores).T
-                    scores_df = scores_df.rename({0: "score"}, axis=1)
-                    scores_df.to_csv(self.OUTPUT_DIR + "/scores.csv")
+                    y_proba = model.predict_proba(self.X_test)
+                    self.y_test.to_csv(self.OUTPUT_DIR + "/y_test.csv", index=False)
+                    pd.DataFrame(y_proba).to_csv(self.OUTPUT_DIR + "/y_proba.csv", index=False)
+                    pd.DataFrame(y_pred).to_csv(self.OUTPUT_DIR + "/y_pred.csv", index=False)
 
                 state = state_finishing
+
             if state == state_finishing:
                 print("Finishing")
                 self.progress = 'finishing...'
