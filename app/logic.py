@@ -1,3 +1,4 @@
+import os
 import shutil
 import threading
 import time
@@ -6,7 +7,6 @@ import joblib
 import jsonpickle
 import pandas as pd
 import yaml
-from sklearn.model_selection import train_test_split
 
 from app.algo import Coordinator, Client
 
@@ -40,32 +40,56 @@ class AppLogic:
         self.INPUT_DIR = "/mnt/input"
         self.OUTPUT_DIR = "/mnt/output"
 
-        self.client = None
-        self.input = None
-        self.sep = None
+        self.models = {}
+
+        self.train_filename = None
+        self.test_filename = None
+
+        self.pred_output = None
+        self.proba_output = None
+        self.test_output = None
+        self.sep = ","
         self.label_column = None
-        self.test_size = None
-        self.random_state = None
-        self.X = None
-        self.y = None
-        self.X_test = None
-        self.y_test = None
-        self.beta = None
+        self.mode = None
+        self.dir = "."
+        self.splits = {}
+        self.test_splits = {}
+        self.betas = {}
         self.iter_counter = 0
-        self.beta_finished = None
+        self.betas_finished = {}
         self.max_iter = None
 
     def read_config(self):
         with open(self.INPUT_DIR + '/config.yml') as f:
             config = yaml.load(f, Loader=yaml.FullLoader)['fc_logistic_regression']
-            self.input = config['files']['input']
-            self.sep = config['files']['sep']
-            self.label_column = config['files']['label_column']
-            self.test_size = config['evaluation']['test_size']
-            self.random_state = config['evaluation']['random_state']
-            self.max_iter = 10000
+            self.train_filename = config['input']['train']
+            self.test_filename = config['input']['test']
 
+            self.pred_output = config['output']['pred']
+            self.proba_output = config['output']['proba']
+            self.test_output = config['output']['test']
+
+            self.sep = config['format']['sep']
+            self.label_column = config['format']['label']
+
+            self.mode = config['split']['mode']
+            self.dir = config['split']['dir']
+
+            self.max_iter = config['algo']['max_iterations']
+
+        if self.mode == "directory":
+            self.splits = dict.fromkeys([f.path for f in os.scandir(f'{self.INPUT_DIR}/{self.dir}') if f.is_dir()])
+            self.test_splits = dict.fromkeys(self.splits.keys())
+            self.models = dict.fromkeys(self.splits.keys())
+            self.betas = dict.fromkeys(self.splits.keys())
+            self.betas_finished = dict.fromkeys(self.splits.keys())
+        else:
+            self.splits[self.INPUT_DIR] = None
+
+        for split in self.splits.keys():
+            os.makedirs(split.replace("/input/", "/output/"), exist_ok=True)
         shutil.copyfile(self.INPUT_DIR + '/config.yml', self.OUTPUT_DIR + '/config.yml')
+        print(f'Read config file.', flush=True)
 
     def handle_setup(self, client_id, coordinator, clients):
         # This method is called once upon startup and contains information about the execution context of this instance
@@ -110,40 +134,54 @@ class AppLogic:
                 print("Initializing")
                 if self.id is not None:  # Test if setup has happened already
                     print("Coordinator", self.coordinator)
-                    if self.coordinator:
-                        self.client = Coordinator()
-                    else:
-                        self.client = Client()
+
                     state = state_read_input
 
             if state == state_read_input:
                 print('Read input and config')
                 self.read_config()
+                numerics = ['int8', 'int16', 'int32', 'int64', 'float16', 'float32', 'float64']
 
-                numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
-                self.X = pd.read_csv(self.INPUT_DIR + "/" + self.input, sep=self.sep).select_dtypes(
-                    include=numerics).dropna()
-                self.y = self.X.loc[:, self.label_column]
-                self.X = self.X.drop(self.label_column, axis=1)
+                for split in self.splits.keys():
+                    if self.coordinator:
+                        self.models[split] = Coordinator()
+                    else:
+                        self.models[split] = Client()
+                    train_path = split + "/" + self.train_filename
+                    test_path = split + "/" + self.test_filename
+                    X = pd.read_csv(train_path, sep=self.sep).select_dtypes(include=numerics).dropna()
+                    y = X.loc[:, self.label_column]
+                    X = X.drop(self.label_column, axis=1)
+                    X_test = pd.read_csv(test_path, sep=self.sep).select_dtypes(include=numerics).dropna()
+                    y_test = X_test.loc[:, self.label_column]
+                    X_test = X_test.drop(self.label_column, axis=1)
 
-                if self.test_size is not None:
-                    self.X, self.X_test, self.y, self.y_test = train_test_split(self.X, self.y,
-                                                                                test_size=self.test_size,
-                                                                                random_state=self.random_state)
+                    self.splits[split] = [X, y]
+                    self.test_splits[split] = [X_test, y_test]
+
                 state = state_preprocessing
 
             if state == state_preprocessing:
-                self.X, self.y, self.beta = self.client.init(self.X, self.y)
+                for split in self.splits.keys():
+                    model = self.models[split]
+                    X, y, beta = model.init(self.splits[split][0], self.splits[split][1])
+                    self.splits[split] = [X, y]
+                    self.models[split] = model
+                    self.betas[split] = beta
                 state = state_local_computation
 
             if state == state_local_computation:
                 print("Perform local beta update")
                 self.progress = 'local beta update'
                 self.iter_counter = self.iter_counter + 1
-                try:
-                    data_to_send = self.client.compute_derivatives(self.X, self.y, self.beta)
-                except FloatingPointError:
-                    data_to_send = "early_stop"
+                data_to_send = {}
+                for split in self.splits.keys():
+                    try:
+                        data_to_send[split] = self.models[split].compute_derivatives(self.splits[split][0],
+                                                                                     self.splits[split][1],
+                                                                                     self.betas[split])
+                    except FloatingPointError:
+                        data_to_send[split] = "early_stop"
 
                 data_to_send = jsonpickle.encode(data_to_send)
 
@@ -162,14 +200,16 @@ class AppLogic:
                 if len(self.data_incoming) > 0:
                     print("Received aggregation data from coordinator.")
                     data_decoded = jsonpickle.decode(self.data_incoming[0])
-                    self.beta, self.beta_finished = data_decoded[0], data_decoded[1]
+                    print(data_decoded)
+                    self.betas, self.betas_finished = data_decoded[0], data_decoded[1]
                     self.data_incoming = []
-                    if not self.beta_finished and self.iter_counter < self.max_iter:
-                        state = state_local_computation
-                    else:
+                    if False not in self.betas_finished or self.max_iter >= self.iter_counter:
                         print("Beta update finished.")
-                        self.client.set_coefs(self.beta)
+                        for split in self.splits:
+                            self.models[split].set_coefs(self.betas[split])
                         state = state_writing_results
+                    else:
+                        state = state_local_computation
 
             # GLOBAL PART
 
@@ -177,43 +217,59 @@ class AppLogic:
                 print("Global computation")
                 self.progress = 'computing...'
                 if len(self.data_incoming) == len(self.clients):
+                    print("Received data of all clients")
+
                     data = [jsonpickle.decode(client_data) for client_data in self.data_incoming]
                     self.data_incoming = []
-                    self.beta, self.beta_finished = self.client.aggregate_beta(data)
-                    data_to_broadcast = jsonpickle.encode([self.beta, self.beta_finished])
+                    for split in self.splits:
+                        if not self.betas_finished[split]:
+                            split_data = []
+                            for client in data:
+                                split_data.append(client[split])
+                            beta, beta_finished = self.models[split].aggregate_beta(split_data)
+                            self.betas[split] = beta
+                            self.betas_finished[split] = beta_finished
+                    data_to_broadcast = jsonpickle.encode([self.betas, self.betas_finished])
                     self.data_outgoing = data_to_broadcast
                     self.status_available = True
                     print(f'[COORDINATOR] Broadcasting computation data to clients', flush=True)
-                    if not self.beta_finished and self.iter_counter < self.max_iter:
-                        state = state_local_computation
-                    else:
+                    if False not in self.betas_finished or self.max_iter >= self.iter_counter:
                         print("Beta update finished.")
-                        self.client.set_coefs(self.beta)
+                        for split in self.splits:
+                            self.models[split].set_coefs(self.betas[split])
+                            print(self.betas[split])
                         state = state_writing_results
+                    else:
+                        state = state_local_computation
 
             if state == state_writing_results:
                 print("Writing results")
-                # now you can save it to a file
-                print("Coef:", self.client.coef_)
-                joblib.dump(self.client, self.OUTPUT_DIR + '/model.pkl')
-                model = self.client
+                for split in self.splits:
+                    model = self.models[split]
 
-                if self.test_size is not None:
-                    y_pred = model.predict(self.X_test)
-                    y_proba = model.predict_proba(self.X_test)
-                    self.y_test.to_csv(self.OUTPUT_DIR + "/y_test.csv", index=False)
-                    pd.DataFrame(y_proba).to_csv(self.OUTPUT_DIR + "/y_proba.csv", index=False)
-                    pd.DataFrame(y_pred).to_csv(self.OUTPUT_DIR + "/y_pred.csv", index=False)
+                    joblib.dump(model, split.replace("/input/", "/output/") + '/model.pkl')
 
-                state = state_finishing
+                    y_pred = pd.DataFrame(model.predict(self.test_splits[split][0]), columns=["y_pred"])
+                    y_proba = pd.DataFrame(model.predict_proba(self.test_splits[split][0]))
+                    y_pred.to_csv(split.replace("/input/", "/output/") + "/" + self.pred_output, index=False)
+                    y_proba.to_csv(split.replace("/input/", "/output/") + "/" + self.proba_output, index=False)
+                    self.test_splits[split][1].to_csv(split.replace("/input/", "/output/") + "/" + self.test_filename,
+                                                      index=False)
+
+                if self.coordinator:
+                    self.data_incoming = ['DONE']
+                    state = state_finishing
+                else:
+                    self.data_outgoing = 'DONE'
+                    self.status_available = True
+                    break
 
             if state == state_finishing:
                 print("Finishing")
                 self.progress = 'finishing...'
-                if self.coordinator:
-                    time.sleep(10)
-                self.status_finished = True
-                break
+                if len(self.data_incoming) == len(self.clients):
+                    self.status_finished = True
+                    break
 
             time.sleep(1)
 

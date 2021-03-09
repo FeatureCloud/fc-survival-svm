@@ -1,9 +1,16 @@
-fc_linear_regression:
-  files:
-    input: "client1.csv"
+fc_logistic_regression:
+  input:
+    train: "client.csv"
+    test: "client.csv"
+  output:
+    pred: "pred.csv"
+    proba: "proba.csv"
+    test: "test.csv"
+  format:
     sep: ","
-    label_column: "label"
-
-  evaluation:
-    test_size: 0.33 # if None, no evaluation will be performed
-    random_state: 42 # For reproducibility, also None possible
+    label: "label"
+  split:
+    mode: "directory"
+    dir: "test"
+  algo:
+    max_iterations: 10000

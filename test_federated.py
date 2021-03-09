@@ -34,7 +34,7 @@ def test_federated(X, y):
     y1 = y[:100]
     df1 = pd.DataFrame(X1)
     df1["label"] = pd.Series(y1)
-    df1.to_csv("client1.csv")
+    df1.to_csv("client.csv")
     coordinator = Coordinator()
     X1, y1, beta = coordinator.init(X1, y1)
 
@@ -42,7 +42,7 @@ def test_federated(X, y):
     y2 = y[100:]
     df2 = pd.DataFrame(X2)
     df2["label"] = pd.Series(y2)
-    df2.to_csv("client2.csv")
+    df2.to_csv("client.csv")
     client = Client()
     X2, y2, beta = client.init(X2, y2)
     counter = 0
@@ -79,4 +79,3 @@ y = brca.target
 gold_standard(X, y)
 test_federated(X, y)
 regr = LogisticRegression(solver='lbfgs', C=1e9, max_iter=10000, fit_intercept=True).fit(X, y)
-

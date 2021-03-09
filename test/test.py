@@ -24,11 +24,11 @@ class TestLinearRegression(unittest.TestCase):
                                                fit_intercept=True).fit(self.X, self.y)
         print(self.global_model.intercept_)
 
-        X1, y1 = parse_input("client1/client1.csv")
+        X1, y1 = parse_input("client1/client.csv")
         self.coordinator = Coordinator()
         X1, y1, beta = self.coordinator.init(X1, y1)
 
-        X2, y2 = parse_input("client2/client2.csv")
+        X2, y2 = parse_input("client2/client.csv")
         self.client = Client()
         X2, y2, beta = self.client.init(X2, y2)
 

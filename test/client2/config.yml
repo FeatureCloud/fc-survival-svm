@@ -1,6 +1,6 @@
 fc_logistic_regression:
   files:
-    input: "client2.csv"
+    input: "client.csv"
     sep: ","
     label_column: "label"
 

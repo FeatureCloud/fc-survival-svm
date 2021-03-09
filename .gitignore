@@ -3,3 +3,5 @@ venv
 test/__pycache__/
 app/__pycache__/
 *pyc
+eval.py
+test_federated.py
