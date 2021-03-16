@@ -20,7 +20,7 @@ def parse_input(path):
 class TestLinearRegression(unittest.TestCase):
     def setUp(self):
         self.X, self.y = parse_input("brca_norm.csv")
-        self.global_model = LogisticRegression(penalty="none", solver='lbfgs', C=1e9, max_iter=10000,
+        self.global_model = LogisticRegression(penalty="none", solver='lbfgs', max_iter=10000,
                                                fit_intercept=True).fit(self.X, self.y)
         print(self.global_model.intercept_)
 

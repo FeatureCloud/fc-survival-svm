@@ -85,6 +85,10 @@ class AppLogic:
             self.betas_finished = dict.fromkeys(self.splits.keys())
         else:
             self.splits[self.INPUT_DIR] = None
+            self.test_splits[self.INPUT_DIR] = None
+            self.models[self.INPUT_DIR] = None
+            self.betas[self.INPUT_DIR] = None
+            self.betas_finished[self.INPUT_DIR] = None
 
         for split in self.splits.keys():
             os.makedirs(split.replace("/input/", "/output/"), exist_ok=True)
@@ -140,20 +144,22 @@ class AppLogic:
             if state == state_read_input:
                 print('Read input and config')
                 self.read_config()
-                numerics = ['int8', 'int16', 'int32', 'int64', 'float16', 'float32', 'float64']
 
                 for split in self.splits.keys():
+                    print(f'Read {split}')
                     if self.coordinator:
                         self.models[split] = Coordinator()
                     else:
                         self.models[split] = Client()
                     train_path = split + "/" + self.train_filename
                     test_path = split + "/" + self.test_filename
-                    X = pd.read_csv(train_path, sep=self.sep).select_dtypes(include=numerics).dropna()
+                    X = pd.read_csv(train_path, sep=self.sep, dtype="float32")
                     y = X.loc[:, self.label_column]
                     X = X.drop(self.label_column, axis=1)
-                    X_test = pd.read_csv(test_path, sep=self.sep).select_dtypes(include=numerics).dropna()
+                    X_test = pd.read_csv(test_path, sep=self.sep, dtype="float32")
                     y_test = X_test.loc[:, self.label_column]
+
+                    y_test.to_csv(split.replace("/input/", "/output/") + "/" + self.test_output, index=False)
                     X_test = X_test.drop(self.label_column, axis=1)
 
                     self.splits[split] = [X, y]
@@ -163,6 +169,7 @@ class AppLogic:
 
             if state == state_preprocessing:
                 for split in self.splits.keys():
+                    print(f'Preprocess {split}')
                     model = self.models[split]
                     X, y, beta = model.init(self.splits[split][0], self.splits[split][1])
                     self.splits[split] = [X, y]
@@ -174,8 +181,10 @@ class AppLogic:
                 print("Perform local beta update")
                 self.progress = 'local beta update'
                 self.iter_counter = self.iter_counter + 1
+                print(f'Iteration {self.iter_counter}')
                 data_to_send = {}
                 for split in self.splits.keys():
+                    print(f'Compute {split}')
                     try:
                         data_to_send[split] = self.models[split].compute_derivatives(self.splits[split][0],
                                                                                      self.splits[split][1],
@@ -200,16 +209,15 @@ class AppLogic:
                 if len(self.data_incoming) > 0:
                     print("Received aggregation data from coordinator.")
                     data_decoded = jsonpickle.decode(self.data_incoming[0])
-                    print(data_decoded)
                     self.betas, self.betas_finished = data_decoded[0], data_decoded[1]
                     self.data_incoming = []
-                    if False not in self.betas_finished or self.max_iter >= self.iter_counter:
+                    if False in self.betas_finished.values() and self.max_iter > self.iter_counter:
+                        state = state_local_computation
+                    else:
                         print("Beta update finished.")
                         for split in self.splits:
                             self.models[split].set_coefs(self.betas[split])
                         state = state_writing_results
-                    else:
-                        state = state_local_computation
 
             # GLOBAL PART
 
@@ -218,11 +226,11 @@ class AppLogic:
                 self.progress = 'computing...'
                 if len(self.data_incoming) == len(self.clients):
                     print("Received data of all clients")
-
                     data = [jsonpickle.decode(client_data) for client_data in self.data_incoming]
                     self.data_incoming = []
-                    for split in self.splits:
+                    for split in self.splits.keys():
                         if not self.betas_finished[split]:
+                            print(f'Aggregate {split}')
                             split_data = []
                             for client in data:
                                 split_data.append(client[split])
@@ -233,18 +241,19 @@ class AppLogic:
                     self.data_outgoing = data_to_broadcast
                     self.status_available = True
                     print(f'[COORDINATOR] Broadcasting computation data to clients', flush=True)
-                    if False not in self.betas_finished or self.max_iter >= self.iter_counter:
-                        print("Beta update finished.")
-                        for split in self.splits:
-                            self.models[split].set_coefs(self.betas[split])
-                            print(self.betas[split])
-                        state = state_writing_results
-                    else:
+                    if False in self.betas_finished.values() and self.max_iter > self.iter_counter:
+                        print(f'Beta update not finished for all splits.')
                         state = state_local_computation
+                    else:
+                        print("Beta update finished.")
+                        for split in self.splits.keys():
+                            self.models[split].set_coefs(self.betas[split])
+                        state = state_writing_results
 
             if state == state_writing_results:
                 print("Writing results")
-                for split in self.splits:
+                for split in self.splits.keys():
+                    print(f'Write {split}')
                     model = self.models[split]
 
                     joblib.dump(model, split.replace("/input/", "/output/") + '/model.pkl')
@@ -253,8 +262,6 @@ class AppLogic:
                     y_proba = pd.DataFrame(model.predict_proba(self.test_splits[split][0]))
                     y_pred.to_csv(split.replace("/input/", "/output/") + "/" + self.pred_output, index=False)
                     y_proba.to_csv(split.replace("/input/", "/output/") + "/" + self.proba_output, index=False)
-                    self.test_splits[split][1].to_csv(split.replace("/input/", "/output/") + "/" + self.test_filename,
-                                                      index=False)
 
                 if self.coordinator:
                     self.data_incoming = ['DONE']
