@@ -91,7 +91,7 @@ class AppLogic:
             self.betas_finished[self.INPUT_DIR] = None
 
         for split in self.splits.keys():
-            os.makedirs(split.replace("/input/", "/output/"), exist_ok=True)
+            os.makedirs(split.replace("/input", "/output"), exist_ok=True)
         shutil.copyfile(self.INPUT_DIR + '/config.yml', self.OUTPUT_DIR + '/config.yml')
         print(f'Read config file.', flush=True)
 
@@ -256,12 +256,12 @@ class AppLogic:
                     print(f'Write {split}')
                     model = self.models[split]
 
-                    joblib.dump(model, split.replace("/input/", "/output/") + '/model.pkl')
+                    joblib.dump(model, split.replace("/input", "/output") + '/model.pkl')
 
                     y_pred = pd.DataFrame(model.predict(self.test_splits[split][0]), columns=["y_pred"])
                     y_proba = pd.DataFrame(model.predict_proba(self.test_splits[split][0]))
-                    y_pred.to_csv(split.replace("/input/", "/output/") + "/" + self.pred_output, index=False)
-                    y_proba.to_csv(split.replace("/input/", "/output/") + "/" + self.proba_output, index=False)
+                    y_pred.to_csv(split.replace("/input", "/output") + "/" + self.pred_output, index=False)
+                    y_proba.to_csv(split.replace("/input", "/output") + "/" + self.proba_output, index=False)
 
                 if self.coordinator:
                     self.data_incoming = ['DONE']
