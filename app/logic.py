@@ -159,7 +159,7 @@ class AppLogic:
                     X_test = pd.read_csv(test_path, sep=self.sep, dtype="float32")
                     y_test = X_test.loc[:, self.label_column]
 
-                    y_test.to_csv(split.replace("/input/", "/output/") + "/" + self.test_output, index=False)
+                    y_test.to_csv(split.replace("/input", "/output") + "/" + self.test_output, index=False)
                     X_test = X_test.drop(self.label_column, axis=1)
 
                     self.splits[split] = [X, y]

@@ -1,9 +1,16 @@
 fc_logistic_regression:
-  files:
-    input: "client.csv"
+  input:
+    train: "client.csv"
+    test: "client.csv"
+  output:
+    pred: "pred.csv"
+    proba: "proba.csv"
+    test: "test.csv"
+  format:
     sep: ","
-    label_column: "label"
-
-  evaluation:
-    test_size: 0.33 # if None, no evaluation will be performed
-    random_state: 42 # For reproducibility, also None possible
+    label: "label"
+  split:
+    mode: "file"
+    dir: "."
+  algo:
+    max_iterations: 10000

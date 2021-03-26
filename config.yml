@@ -10,7 +10,7 @@ fc_logistic_regression:
     sep: ","
     label: "label"
   split:
-    mode: "directory"
-    dir: "test"
+    mode: "file"
+    dir: "."
   algo:
     max_iterations: 10000
