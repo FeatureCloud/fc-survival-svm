@@ -8,7 +8,7 @@ import jsonpickle
 import pandas as pd
 import yaml
 
-from app.algo import Coordinator, Client
+from app.algo_logistic_regression import Coordinator, Client
 
 
 class AppLogic:
