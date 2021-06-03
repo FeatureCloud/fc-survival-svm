@@ -149,7 +149,7 @@ class AppLogic:
 
         while True:
             if state == state_initializing:
-                print("Initializing")
+                logging.info("Initializing")
                 if self.id is not None:  # Test if setup has happened already
                     logging.info("Coordinator", self.coordinator)
 
