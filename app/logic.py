@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import threading
@@ -93,7 +94,7 @@ class AppLogic:
         for split in self.splits.keys():
             os.makedirs(split.replace("/input", "/output"), exist_ok=True)
         shutil.copyfile(self.INPUT_DIR + '/config.yml', self.OUTPUT_DIR + '/config.yml')
-        print(f'Read config file.', flush=True)
+        logging.info(f'Read config file.')
 
     def handle_setup(self, client_id, coordinator, clients):
         # This method is called once upon startup and contains information about the execution context of this instance
@@ -137,16 +138,16 @@ class AppLogic:
             if state == state_initializing:
                 print("Initializing")
                 if self.id is not None:  # Test if setup has happened already
-                    print("Coordinator", self.coordinator)
+                    logging.info("Coordinator", self.coordinator)
 
                     state = state_read_input
 
             if state == state_read_input:
-                print('Read input and config')
+                logging.info('Read input and config')
                 self.read_config()
 
                 for split in self.splits.keys():
-                    print(f'Read {split}')
+                    logging.info(f'Read {split} data')
                     if self.coordinator:
                         self.models[split] = Coordinator()
                     else:
