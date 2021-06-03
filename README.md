@@ -1,39 +1,45 @@
-# Logistic Regression FeatureCloud App
+# Survival Support Vector Regression FeatureCloud App
 
 ## Description
-A Logistic Regression FeautureCloud app, allowing a federated computation of the logistic regression algorithm.
+A Survival SVM FeatureCloud app, allowing a federated training of a Survival SVM using a pure regression objective.
 
 ## Input
-- train.csv containing the local training data (columns: features; rows: samples)
-- test.csv containing the local test data
+- `train`: containing the local training data (columns: features; rows: samples)
+- `test`: containing the local test data
 
 ## Output
-- pred.csv containing the predicted value 
-- prob.csv containing the predicted probability
-- train.csv containing the local training data
-- test.csv containing the local test data
+- `model`: containing a dump of the trained SVM object
+- `pred`: containing the predictions generated on the local test data
+- `test`: containing the local test data
 
 ## Workflows
+Please note that it is advised to encode categorical features of the input e.g. using the one-hot scheme.
+The One-hot Encoder FeatureCloud App can be used in a workflow prior to this app.
+
 Can be combined with the following apps:
-- Pre: Cross Validation, Normalization, Feature Selection
-- Post: Classification Evaluation
+- Pre: Cross Validation, Normalization, Feature Selection, One-hot Encoder
+- Post: Survival Regression Evaluation (#TODO)
 
 ## Config
 Use the config file to customize your training. Just upload it together with your training data as `config.yml`
-```
-fc_logistic_regression
+```yml
+fc_survival_svm:
   input:
-    train: "train.csv"
-    test: "test.csv"
+    train: "train_encoded.csv"
+    test: "test_encoded.csv"
   output:
+    model: "model.pickle"
     pred: "pred.csv"
     test: "test.csv"
   format:
     sep: ","
-    label: "Class
+    label_survival_time: "tte"
+    label_event: "event"
   split:
-    mode: directory # directory if cross validation was used before, else file
-    dir: data # data if cross validation app was used before, else .
-  algo:
-    max_iterations: 10000 # Maximum number of iterations
+    mode: directory  # directory if cross validation was used before, else file
+    dir: data  # data if cross validation app was used before, else .
+  svm:
+    alpha: 1  # regularization parameter
+    fit_intercept: False  # whether to fit an intercept or not
+    max_iterations: 1000  # maximum number of iterations
 ```
