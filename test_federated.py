@@ -4,7 +4,7 @@ from sklearn.linear_model import LogisticRegression
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
-from app.algo_logistic_regression import Coordinator, Client
+from app.algo import Coordinator, Client
 
 
 def gold_standard(X, y):
