@@ -46,37 +46,50 @@ class AppLogic:
         self.train_filename = None
         self.test_filename = None
 
+        self.model_output = None
         self.pred_output = None
-        self.proba_output = None
         self.test_output = None
-        self.sep = ","
-        self.label_column = None
+
+        self.sep = None
+        self.label_time_to_event = None
+        self.label_event = None
+        self.event_truth_value = None
+
         self.mode = None
         self.dir = "."
+
+        self.alpha = None
+        self.fit_intercept = None
+        self.max_iter = None
+
         self.splits = {}
         self.test_splits = {}
         self.betas = {}
         self.iter_counter = 0
         self.betas_finished = {}
-        self.max_iter = None
+
 
     def read_config(self):
-        with open(self.INPUT_DIR + '/config.yml') as f:
-            config = yaml.load(f, Loader=yaml.FullLoader)['fc_logistic_regression']
+        with open(os.path.join(self.INPUT_DIR, "config.yml")) as f:
+            config = yaml.load(f, Loader=yaml.FullLoader)['fc_survival_svm']
             self.train_filename = config['input']['train']
             self.test_filename = config['input']['test']
 
+            self.model_output = config['output']['model']
             self.pred_output = config['output']['pred']
-            self.proba_output = config['output']['proba']
             self.test_output = config['output']['test']
 
             self.sep = config['format']['sep']
-            self.label_column = config['format']['label']
+            self.label_time_to_event = config["format"]["label_survival_time"]
+            self.label_event = config["format"]["label_event"]
+            self.event_truth_value = config["format"].get("event_truth_value", True)  # default value
 
             self.mode = config['split']['mode']
             self.dir = config['split']['dir']
 
-            self.max_iter = config['algo']['max_iterations']
+            self.alpha = config['svm']['alpha']
+            self.fit_intercept = config['svm']['fit_intercept']
+            self.max_iter = config['svm']['max_iterations']
 
         if self.mode == "directory":
             self.splits = dict.fromkeys([f.path for f in os.scandir(f'{self.INPUT_DIR}/{self.dir}') if f.is_dir()])
