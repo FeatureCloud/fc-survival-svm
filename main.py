@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from bottle import Bottle
 
 from app.api_ctrl import api_server
