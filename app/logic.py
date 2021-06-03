@@ -114,18 +114,18 @@ class AppLogic:
         self.id = client_id
         self.coordinator = coordinator
         self.clients = clients
-        print(f'Received setup: {self.id} {self.coordinator} {self.clients}', flush=True)
+        logging.info(f'Received setup: {self.id} {self.coordinator} {self.clients}')
 
         self.thread = threading.Thread(target=self.app_flow)
         self.thread.start()
 
     def handle_incoming(self, data):
         # This method is called when new data arrives
-        print("Process incoming data....")
+        logging.info("Process incoming data....")
         self.data_incoming.append(data.read())
 
     def handle_outgoing(self):
-        print("Process outgoing data...")
+        logging.info("Process outgoing data...")
         # This method is called when data is requested
         self.status_available = False
         return self.data_outgoing
