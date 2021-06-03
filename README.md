@@ -35,6 +35,7 @@ fc_survival_svm:
     sep: ","
     label_survival_time: "tte"
     label_event: "event"
+    event_truth_value: True  # optional, default=True; value of an entry in the event column when a event occurred
   split:
     mode: directory  # directory if cross validation was used before, else file
     dir: data  # data if cross validation app was used before, else .
