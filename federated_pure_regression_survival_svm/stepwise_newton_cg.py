@@ -577,25 +577,13 @@ if __name__ == '__main__':
                   handler: Callable[
                       [SteppedEventBasedNewtonCgOptimizer.Request], SteppedEventBasedNewtonCgOptimizer.Resolved],
                   recheck_timeout=1):
-        def all_finished(multiple: List[SteppedEventBasedNewtonCgOptimizer]):
-            for optimizer in multiple:
-                if not optimizer.finished:
-                    return False
-            return True
+        threads = [None] * len(optimizers)
+        for i, optimizer in enumerate(optimizers):
+            threads[i] = thread = threading.Thread(target=optimizer.solve, args=(handler,), kwargs={'recheck_timeout': recheck_timeout})
+            thread.start()
 
-        while not all_finished(optimizers):
-            for optimizer in optimizers:
-                if not optimizer.finished:
-                    request: SteppedEventBasedNewtonCgOptimizer.Request
-                    try:
-                        # if no pending request is found after timeout, the finished property is rechecked
-                        request = optimizer.check_pending_requests(block=False, timeout=recheck_timeout)
-                    except _queue.Empty:
-                        continue
-
-                    logging.debug(request)
-                    resolve: SteppedEventBasedNewtonCgOptimizer.Resolved = handler(request)
-                    optimizer.resolve(resolve)
+        for thread in threads:
+            thread.join()
 
         return [optimizer.result for optimizer in optimizers]
 
