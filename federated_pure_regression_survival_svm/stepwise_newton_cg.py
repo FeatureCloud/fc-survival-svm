@@ -519,6 +519,19 @@ class SteppedEventBasedNewtonCgOptimizer(object):
         self._thread = threading.Thread(target=_time_and_save_optimizer_result, kwargs=kwargs)
         self._thread.start()
 
+    def solve(self, handler: Callable[[Request], Resolved], recheck_timeout=1):
+        while not self.finished:
+            request: SteppedEventBasedNewtonCgOptimizer.Request
+            try:
+                # if no pending request is found after timeout, the finished property is rechecked
+                request = self.check_pending_requests(block=False, timeout=recheck_timeout)
+            except _queue.Empty:
+                continue
+
+            self.resolve(handler(request))
+
+        return self.result
+
 
 if __name__ == '__main__':
     def calc_objective_function_and_gradient_at(req: SteppedEventBasedNewtonCgOptimizer.RequestWDependent):
@@ -530,7 +543,8 @@ if __name__ == '__main__':
         return SteppedEventBasedNewtonCgOptimizer.ResolvedHessian(aggregated_hessian=rosen_hess_prod(req.xk, req.psupi))
 
 
-    def handle_computation_request(request: SteppedEventBasedNewtonCgOptimizer.Request) -> SteppedEventBasedNewtonCgOptimizer.Resolved:
+    def handle_computation_request(
+            request: SteppedEventBasedNewtonCgOptimizer.Request) -> SteppedEventBasedNewtonCgOptimizer.Resolved:
         if isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestWDependent):
             request: SteppedEventBasedNewtonCgOptimizer.RequestWDependent
             return calc_objective_function_and_gradient_at(request)
@@ -560,7 +574,8 @@ if __name__ == '__main__':
 
 
     def solve_all(optimizers: List[SteppedEventBasedNewtonCgOptimizer],
-                  handler: Callable[[SteppedEventBasedNewtonCgOptimizer.Request], SteppedEventBasedNewtonCgOptimizer.Resolved],
+                  handler: Callable[
+                      [SteppedEventBasedNewtonCgOptimizer.Request], SteppedEventBasedNewtonCgOptimizer.Resolved],
                   recheck_timeout=1):
         def all_finished(multiple: List[SteppedEventBasedNewtonCgOptimizer]):
             for optimizer in multiple:
