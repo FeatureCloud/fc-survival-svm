@@ -588,6 +588,57 @@ if __name__ == '__main__':
         return [optimizer.result for optimizer in optimizers]
 
 
+    def _get_all_requests(optimizers: List[SteppedEventBasedNewtonCgOptimizer], recheck_timeout=1):
+        requests: List[Optional[SteppedEventBasedNewtonCgOptimizer.Request]] = [None] * len(optimizers)
+        for i, optimizer in enumerate(optimizers):
+            while not optimizer.finished:
+                try:
+                    # if no pending request is found after timeout, the finished property is rechecked
+                    requests[i] = optimizer.check_pending_requests(block=False, timeout=recheck_timeout)
+                    break
+                except _queue.Empty:
+                    continue
+        return requests
+
+    def _fulfill_all_requests(requests: List[SteppedEventBasedNewtonCgOptimizer.Request], handler: Callable[
+                      [SteppedEventBasedNewtonCgOptimizer.Request], SteppedEventBasedNewtonCgOptimizer.Resolved]):
+        results: List[Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = [None] * len(requests)
+        for i, request in enumerate(requests):
+            if request is None:
+                continue
+            results[i] = handler(request)
+        return results
+
+    def _inform_all(optimizers: List[SteppedEventBasedNewtonCgOptimizer], results: List[Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]]):
+        for optimizer, result in zip(optimizers, results):
+            if result is None:
+                continue
+            optimizer.resolve(result)
+
+    def solve_all_stepped(optimizers: List[SteppedEventBasedNewtonCgOptimizer],
+                  handler: Callable[
+                      [SteppedEventBasedNewtonCgOptimizer.Request], SteppedEventBasedNewtonCgOptimizer.Resolved],
+                  recheck_timeout=1):
+        def all_finished(optimizers: List[SteppedEventBasedNewtonCgOptimizer]):
+            for optimizer in optimizers:
+                if not optimizer.finished:
+                    return False
+            return True
+
+        requests: List[Optional[SteppedEventBasedNewtonCgOptimizer.Request]] = _get_all_requests(optimizers, recheck_timeout)
+
+        while not all_finished(optimizers):
+            results: List[Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = _fulfill_all_requests(requests, handler)
+            _inform_all(optimizers, results)
+            requests: List[Optional[SteppedEventBasedNewtonCgOptimizer.Request]] = _get_all_requests(optimizers, recheck_timeout)
+        return [optimizer.result for optimizer in optimizers]
+
+
+
     optimizers = [SteppedEventBasedNewtonCgOptimizer([2, -1]), SteppedEventBasedNewtonCgOptimizer([1, 1]),
                   SteppedEventBasedNewtonCgOptimizer([2, -1], options={'maxiter': 20})]
     print(solve_all(optimizers, handle_computation_request))
+
+    optimizers = [SteppedEventBasedNewtonCgOptimizer([2, -1]), SteppedEventBasedNewtonCgOptimizer([1, 1]),
+                  SteppedEventBasedNewtonCgOptimizer([2, -1], options={'maxiter': 20})]
+    print(solve_all_stepped(optimizers, handle_computation_request))
