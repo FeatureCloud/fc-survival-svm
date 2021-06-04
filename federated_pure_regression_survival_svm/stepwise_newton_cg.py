@@ -2,11 +2,18 @@
 # optimize.py module by Travis E. Oliphant
 # https://github.com/scipy/scipy/blob/master/scipy/optimize/optimize.py
 # which is part of the scipy package
+import _queue
 import logging
+import threading
+import time
+from collections import namedtuple
 from dataclasses import dataclass
-from typing import List
+from functools import lru_cache, wraps
+from queue import Queue
+from typing import List, Optional, Union, Callable
 
 import numpy as np
+import scipy.optimize
 from nptyping import NDArray, Float64
 from scipy.optimize import minpack2
 from scipy.optimize.optimize import _LineSearchError, OptimizeResult, rosen_hess_prod, rosen_der, rosen
@@ -357,53 +364,227 @@ class NewtonCgStateMachine(object):
                                       nit=self.stat.iteration_counter)
 
 
+def np_cache(fn):
+    """
+    Derived work of https://stackoverflow.com/questions/52331944/cache-decorator-for-numpy-arrays/52332109#52332109
+    """
+
+    @lru_cache(maxsize=1)
+    def cached_wrapper(*hashable_arrays):
+        arrays = [np.array(hashable_array) for hashable_array in hashable_arrays]
+        return fn(*arrays)
+
+    @wraps(fn)
+    def wrapper(*arrays):
+        hashable_arrays = [tuple(array) for array in arrays]
+        return cached_wrapper(*hashable_arrays)
+
+    wrapper.cache_info = cached_wrapper.cache_info
+    wrapper.cache_clear = cached_wrapper.cache_clear
+
+    return wrapper
+
+
+class SteppedEventBasedNewtonCgOptimizer(object):
+    class Request:
+        pass
+
+    @dataclass
+    class RequestWDependent(Request):
+        xk: NDArray
+
+    @dataclass
+    class RequestHessian(Request):
+        xk: NDArray
+        psupi: NDArray
+
+    class Resolved:
+        pass
+
+    @dataclass
+    class ResolvedWDependent(Resolved):
+        aggregated_objective_function_value: float
+        aggregated_gradient: NDArray[Float64]
+
+    @dataclass
+    class ResolvedHessian(Resolved):
+        aggregated_hessian: NDArray[Float64]
+
+    def __init__(self, x0: Union[NDArray[float], List[Union[float, int]]], **kwargs):
+        self._incoming: Queue[SteppedEventBasedNewtonCgOptimizer.Resolved] = Queue(maxsize=1)
+        self._outgoing: Queue[SteppedEventBasedNewtonCgOptimizer.Request] = Queue(maxsize=1)
+
+        self._thread: threading.Thread
+        self._result: Optional[OptimizeResult] = None
+
+        self._total_time = 0
+        self._idle_time = 0
+
+        self._start_minimize(x0, **kwargs)
+
+    @property
+    def finished(self) -> bool:
+        return self._result is not None
+
+    @property
+    def result(self) -> Optional[OptimizeResult]:
+        optimize_result = self._result
+        if optimize_result is None:
+            return optimize_result
+        optimize_result['timings'] = self.timings
+        return optimize_result
+
+    @property
+    def calculation_time(self):
+        return self._total_time - self._idle_time
+
+    @property
+    def timings(self):
+        Timings = namedtuple('Timings', ['calculation_time', 'total_time', 'idle_time'])
+        return Timings(self.calculation_time, self._total_time, self._idle_time)
+
+    def _register_request(self, request: Request):
+        self._outgoing.put_nowait(request)
+
+    def _request_calculations_depending_on_w(self, x: NDArray):
+        self._register_request(self.RequestWDependent(xk=x))
+
+    def _request_calculations_depending_on_s(self, x: NDArray, p: NDArray):
+        self._register_request(self.RequestHessian(xk=x, psupi=p))
+
+    def has_pending(self) -> bool:
+        return not self._outgoing.empty()
+
+    def check_pending_requests(self, block: bool = True, timeout: int = None) -> Request:
+        return self._outgoing.get(block=block, timeout=timeout)
+
+    def resolve(self, resolve: Resolved):
+        self._incoming.put_nowait(resolve)
+
+    def _get_resolved(self, block: bool = True):
+        tic = time.perf_counter()
+        resolved = self._incoming.get(block=block)
+        toc = time.perf_counter()
+        self._idle_time += toc - tic
+        return resolved
+
+    def _updateWDependent(self, w):
+        self._request_calculations_depending_on_w(w)
+        result: SteppedEventBasedNewtonCgOptimizer.Resolved = self._get_resolved()
+
+        if not isinstance(result, SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent):
+            raise Exception('Unexpected resolve type')
+        result: SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent
+
+        self.fval = result.aggregated_objective_function_value
+        self.gval = result.aggregated_gradient
+
+    def _updateHessian(self, x, p):
+        self._request_calculations_depending_on_s(x, p)
+        result: SteppedEventBasedNewtonCgOptimizer.Resolved = self._get_resolved()
+
+        if not isinstance(result, SteppedEventBasedNewtonCgOptimizer.ResolvedHessian):
+            raise Exception('Unexpected resolve type')
+        result: SteppedEventBasedNewtonCgOptimizer.ResolvedHessian
+
+        self.hval = result.aggregated_hessian
+
+    def _start_minimize(self, x0: Union[NDArray[float], List[Union[float, int]]], **kwargs):
+        @np_cache
+        def _do_objective_func(w: NDArray):
+            self._updateWDependent(w)
+            return self.fval
+
+        @np_cache
+        def _do_gradient_func(w: NDArray):
+            # value was already updated in the _do_objective_function_call
+            return self.gval
+
+        @np_cache
+        def _do_hess_prod(x, p):
+            self._updateHessian(x, p)
+
+            return self.hval
+
+        def _time_and_save_optimizer_result(**kwargs):
+            tic = time.perf_counter()
+            self._result = scipy.optimize.minimize(
+                _do_objective_func, x0,
+                method='newton-cg',
+                jac=_do_gradient_func, hessp=_do_hess_prod,
+                **kwargs)
+            toc = time.perf_counter()
+            self._total_time = toc - tic
+
+        self._thread = threading.Thread(target=_time_and_save_optimizer_result, kwargs=kwargs)
+        self._thread.start()
+
+
 if __name__ == '__main__':
-    def calc_objective_function_and_gradient_at(req: NewtonCgStateMachine.RequestWDependent):
-        return UpdateW(aggregated_objective_function_value=rosen(req.xk), aggregated_gradient=rosen_der(req.xk))
+    def calc_objective_function_and_gradient_at(req: SteppedEventBasedNewtonCgOptimizer.RequestWDependent):
+        return SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent(aggregated_objective_function_value=rosen(req.xk),
+                                                                     aggregated_gradient=rosen_der(req.xk))
 
 
-    def calc_hessp_at(req: NewtonCgStateMachine.RequestHessian):
-        return UpdateS(aggregated_hessian=rosen_hess_prod(req.xk, req.psupi))
+    def calc_hessp_at(req: SteppedEventBasedNewtonCgOptimizer.RequestHessian):
+        return SteppedEventBasedNewtonCgOptimizer.ResolvedHessian(aggregated_hessian=rosen_hess_prod(req.xk, req.psupi))
 
 
-    def handle_computation_request(request):
-        if isinstance(request, OptimizeResult):
-            request: OptimizeResult
-            return request
-        elif isinstance(request, NewtonCgStateMachine.RequestWDependent):
-            request: NewtonCgStateMachine.RequestWDependent
+    def handle_computation_request(request: SteppedEventBasedNewtonCgOptimizer.Request) -> SteppedEventBasedNewtonCgOptimizer.Resolved:
+        if isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestWDependent):
+            request: SteppedEventBasedNewtonCgOptimizer.RequestWDependent
             return calc_objective_function_and_gradient_at(request)
-        elif isinstance(request, NewtonCgStateMachine.RequestHessian):
-            request: NewtonCgStateMachine.RequestHessian
+        elif isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestHessian):
+            request: SteppedEventBasedNewtonCgOptimizer.RequestHessian
             return calc_hessp_at(request)
 
 
-    x0 = [2, -1]
-    statemachine = NewtonCgStateMachine(x0)
-    data = None
-    while True:
-        request = statemachine.next(data)
-        data = handle_computation_request(request)
-        if isinstance(data, OptimizeResult):
-            print(data)
-            break
+    logging.basicConfig(level=logging.DEBUG)
+
+    eventMinimizer = SteppedEventBasedNewtonCgOptimizer([1, 1])
+
+    while not eventMinimizer.finished:
+        request: SteppedEventBasedNewtonCgOptimizer.Request
+        try:
+            # if no pending request is found after timeout, the finished property is rechecked
+            request = eventMinimizer.check_pending_requests(block=False, timeout=1)
+        except _queue.Empty:
+            continue
+
+        time.sleep(0.05)
+        logging.debug(request)
+        resolve = handle_computation_request(request)
+        eventMinimizer.resolve(resolve)
+
+    print(eventMinimizer.result)
 
 
-    def all_finished(multiple: List[NewtonCgStateMachine]):
-        for statemachine in multiple:
-            if not statemachine.finished:
-                return False
-        return True
+    def solve_all(optimizers: List[SteppedEventBasedNewtonCgOptimizer],
+                  handler: Callable[[SteppedEventBasedNewtonCgOptimizer.Request], SteppedEventBasedNewtonCgOptimizer.Resolved],
+                  recheck_timeout=1):
+        def all_finished(multiple: List[SteppedEventBasedNewtonCgOptimizer]):
+            for optimizer in multiple:
+                if not optimizer.finished:
+                    return False
+            return True
+
+        while not all_finished(optimizers):
+            for optimizer in optimizers:
+                if not optimizer.finished:
+                    request: SteppedEventBasedNewtonCgOptimizer.Request
+                    try:
+                        # if no pending request is found after timeout, the finished property is rechecked
+                        request = optimizer.check_pending_requests(block=False, timeout=recheck_timeout)
+                    except _queue.Empty:
+                        continue
+
+                    logging.debug(request)
+                    resolve: SteppedEventBasedNewtonCgOptimizer.Resolved = handler(request)
+                    optimizer.resolve(resolve)
+
+        return [optimizer.result for optimizer in optimizers]
 
 
-    multiple = [NewtonCgStateMachine([2, -1]), NewtonCgStateMachine([0.90, 1]), NewtonCgStateMachine([0, 0])]
-    data = [None] * len(multiple)
-    c = 0
-    while not all_finished(multiple):
-        c += 1
-        for i, statemachine in enumerate(multiple):
-            if not statemachine.finished:
-                data[i] = handle_computation_request(statemachine.next(data[i]))
-    print([statemachine.state for statemachine in multiple])
-    print(data)
-    print(c)
+    optimizers = [SteppedEventBasedNewtonCgOptimizer([2, -1]), SteppedEventBasedNewtonCgOptimizer([1, 1]),
+                  SteppedEventBasedNewtonCgOptimizer([2, -1], options={'maxiter': 20})]
+    print(solve_all(optimizers, handle_computation_request))
