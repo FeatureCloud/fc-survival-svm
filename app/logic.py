@@ -177,7 +177,7 @@ class AppLogic:
         return True
 
     def _get_all_requests(self, models: Dict[str, Coordinator], recheck_timeout=1):
-        requests: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Request]] = {k: None for k, v in models.items()}
+        requests: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Request]] = dict.fromkeys(models.keys())
         for model_identifier, coordinator in models.items():
             optimizer: SteppedEventBasedNewtonCgOptimizer = coordinator.newton_optimizer
             while not optimizer.finished:
@@ -190,7 +190,7 @@ class AppLogic:
 
     def _fulfill_all_requests_local(self, requests: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Request]],
                                     models: Dict[str, Coordinator]):
-        local_results: Dict[str, Optional[LocalResult]] = {k: None for k, v in models.items()}
+        local_results: Dict[str, Optional[LocalResult]] = dict.fromkeys(models.keys())
         for model_identifier, request in requests.items():
             if request is None:
                 continue
@@ -200,8 +200,7 @@ class AppLogic:
 
     def _fulfill_all_requests_global(self, local_results: Dict[str, Optional[List[LocalResult]]],
                                      models: Dict[str, Coordinator]):
-        aggregated_results: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = {k: None for k, v in
-                                                                                                models.items()}
+        aggregated_results: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = dict.fromkeys(models.keys())
         for model_identifier, local_result in local_results.items():
             if local_result is None:
                 continue
