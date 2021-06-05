@@ -1,4 +1,5 @@
 import logging
+import warnings
 from dataclasses import dataclass
 from typing import Optional, List, Tuple, Dict
 
@@ -6,7 +7,9 @@ import numpy as np
 import pandas as pd
 from nptyping import NDArray, Bool, Float64
 from scipy.optimize import OptimizeResult
+from sklearn.exceptions import ConvergenceWarning
 from sksurv.util import check_arrays_survival
+from sksurv.svm import FastSurvivalSVM
 
 from federated_pure_regression_survival_svm.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
 
@@ -238,6 +241,35 @@ class Client(object):
             request: SteppedEventBasedNewtonCgOptimizer.RequestHessp
             return self._hessian_func(request)
 
+    def to_sksurv(self, optimize_result: OptimizeResult) -> FastSurvivalSVM:
+        """
+        Export model to a FastSurvivalSVM in the fitted state.
+        :param optimize_result:
+        :return:
+        """
+        fss = FastSurvivalSVM(
+            alpha=self.alpha,
+            rank_ratio=0,
+            fit_intercept=self.fit_intercept,
+            max_iter=self.max_iter,
+        )
+
+        # set attributes in order to get a FastSurvivalSVM in the fitted state
+        coef = optimize_result.x
+        if fss.fit_intercept:
+            fss.coef_ = coef[1:]
+            fss.intercept_ = coef[0]
+        else:
+            fss.coef_ = coef
+
+        if not optimize_result.success:
+            warnings.warn(('Optimization did not converge: ' + optimize_result.message),
+                          category=ConvergenceWarning,
+                          stacklevel=2)
+        fss.optimizer_result_ = optimize_result
+
+        return fss
+
 
 class Coordinator(Client):
     def __init__(self):
@@ -340,6 +372,3 @@ class Coordinator(Client):
         elif isinstance(local_results[0], ObjectivesS):
             local_results: List[ObjectivesS]
             return self.aggregated_hessp(local_results)
-
-
-

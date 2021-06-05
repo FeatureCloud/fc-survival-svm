@@ -1,23 +1,23 @@
 import _queue
 import logging
 import os
+import pickle
 import shutil
 import threading
 import time
-from typing import Any, Dict, Union, List, Optional
+from typing import Any, Dict, Union, List, Optional, Tuple
 
-import joblib
 import jsonpickle
 import numpy as np
 import pandas as pd
 import yaml
 from nptyping import NDArray, Bool
 from scipy.optimize import OptimizeResult
+from sksurv.svm import FastSurvivalSVM
 
-from federated_pure_regression_survival_svm.model import Coordinator, Client, SurvivalData, SharedConfig, ObjectivesW, \
-    ObjectivesS, LocalResult, OptFinished
-from federated_pure_regression_survival_svm.stepwise_newton_cg import NewtonCgStateMachine, UpdateW, UpdateS, \
-    SteppedEventBasedNewtonCgOptimizer
+from federated_pure_regression_survival_svm.model import Coordinator, Client, SurvivalData, SharedConfig, LocalResult, \
+    OptFinished
+from federated_pure_regression_survival_svm.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
 
 
 class AppLogic:
@@ -70,9 +70,8 @@ class AppLogic:
         self.fit_intercept = None
         self.max_iter = None
 
-        self.splits = {}
-        self.test_splits = {}
-        self.requests = {}
+        self.splits: Dict[str, Tuple[pd.DataFrame, NDArray]] = {}
+        self.svm: Dict[str, FastSurvivalSVM] = {}
 
     def read_config(self):
         with open(os.path.join(self.INPUT_DIR, "config.yml")) as f:
@@ -98,11 +97,9 @@ class AppLogic:
 
         if self.mode == "directory":
             self.splits = dict.fromkeys([f.path for f in os.scandir(f'{self.INPUT_DIR}/{self.dir}') if f.is_dir()])
-            self.test_splits = dict.fromkeys(self.splits.keys())
             self.models = dict.fromkeys(self.splits.keys())
         else:
             self.splits[self.INPUT_DIR] = None
-            self.test_splits[self.INPUT_DIR] = None
             self.models[self.INPUT_DIR] = None
 
         for split in self.splits.keys():
@@ -132,7 +129,7 @@ class AppLogic:
         logging.debug(f"Dataframe:\n{dataframe}")
         return dataframe
 
-    def read_survival_data(self, path):
+    def read_survival_data(self, path) -> Tuple[pd.DataFrame, NDArray]:
         X: pd.DataFrame = self.read_data_frame(path)
 
         event = self.get_column(X, self.label_event)
@@ -191,7 +188,8 @@ class AppLogic:
                     continue
         return requests
 
-    def _fulfill_all_requests_local(self, requests: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Request]], models: Dict[str, Coordinator]):
+    def _fulfill_all_requests_local(self, requests: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Request]],
+                                    models: Dict[str, Coordinator]):
         local_results: Dict[str, Optional[LocalResult]] = {k: None for k, v in models.items()}
         for model_identifier, request in requests.items():
             if request is None:
@@ -200,8 +198,10 @@ class AppLogic:
             local_results[model_identifier] = model.handle_computation_request(request)
         return local_results
 
-    def _fulfill_all_requests_global(self, local_results: Dict[str, Optional[List[LocalResult]]], models: Dict[str, Coordinator]):
-        aggregated_results: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = {k: None for k, v in models.items()}
+    def _fulfill_all_requests_global(self, local_results: Dict[str, Optional[List[LocalResult]]],
+                                     models: Dict[str, Coordinator]):
+        aggregated_results: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = {k: None for k, v in
+                                                                                                models.items()}
         for model_identifier, local_result in local_results.items():
             if local_result is None:
                 continue
@@ -209,7 +209,8 @@ class AppLogic:
             aggregated_results[model_identifier] = model.aggregate_local_result(local_result)
         return aggregated_results
 
-    def _inform_all(self, aggregated_results: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]], models: Dict[str, Coordinator]):
+    def _inform_all(self, aggregated_results: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]],
+                    models: Dict[str, Coordinator]):
         for model_identifier, aggregated_result in aggregated_results.items():
             if aggregated_result is None:
                 continue
@@ -224,18 +225,14 @@ class AppLogic:
         state_initializing = 1
         state_read_input = 2
         state_preprocessing = 3
-        state_send_data_attributes = 3.1
-        state_global_aggregation_of_data_attributes = 3.2
-        state_global_optimization = 3.4
-        state_local_optimization_calculation_requests_listener = 3.6
-        state_send_global_model = 3.7
-        state_set_global_model = 3.8
-
-        state_local_computation = 4
-        state_wait_for_aggregation = 5
-        state_global_aggregation = 6
-        state_writing_results = 7
-        state_finishing = 8
+        state_send_data_attributes = 4
+        state_global_aggregation_of_data_attributes = 5
+        state_global_optimization = 6
+        state_local_optimization_calculation_requests_listener = 7
+        state_send_global_model = 8
+        state_set_global_model = 9
+        state_generate_predictions = 10
+        state_shutdown = 11
 
         # Initial state
         state = state_initializing
@@ -266,7 +263,6 @@ class AppLogic:
                         self.models[split] = Client()
 
                     self.splits[split] = self.read_survival_data(os.path.join(split, self.train_filename))
-                    self.test_splits[split] = self.read_survival_data(os.path.join(split, self.test_filename))
                 state = state_preprocessing
 
             if state == state_preprocessing:
@@ -276,7 +272,8 @@ class AppLogic:
                     model = self.models[split]
                     X, y = self.splits[split]
                     model.set_config(
-                        SharedConfig(alpha=self.alpha, fit_intercept=self.fit_intercept, max_iter=self.max_iter))
+                        SharedConfig(alpha=self.alpha, fit_intercept=self.fit_intercept,
+                                     max_iter=self.max_iter))  # TODO: check if nodes agree on config
                     model.set_data(SurvivalData(X, y))
                     model.log_transform_times()  # run log transformation of time values for regression objective
                 state = state_send_data_attributes
@@ -384,7 +381,7 @@ class AppLogic:
                     if isinstance(requests, OptFinished):
                         logging.debug("Received OptFinished signal")
                         state = state_set_global_model
-                        self.opt_result: OptFinished = requests
+                        self.opt_finished_signal: OptFinished = requests
                     else:
                         results = self._fulfill_all_requests_local(requests, self.models)
 
@@ -419,109 +416,54 @@ class AppLogic:
                 state = state_local_optimization_calculation_requests_listener
 
             if state == state_set_global_model:
-                logging.debug(f"GLOBAL MODELS {self.opt_result}")
-
-
-            if state == state_local_computation:
-                print("Perform local beta update")
-                self.progress = 'local beta update'
-                self.iter_counter = self.iter_counter + 1
-                print(f'Iteration {self.iter_counter}')
-                data_to_send = {}
+                self.progress = "save global models..."
+                logging.debug(f"GLOBAL MODELS {self.opt_finished_signal}")
+                opt_results: Dict[str, Optional[OptimizeResult]] = self.opt_finished_signal.opt_results
                 for split in self.splits.keys():
-                    print(f'Compute {split}')
-                    try:
-                        data_to_send[split] = self.models[split].compute_derivatives(self.splits[split][0],
-                                                                                     self.splits[split][1],
-                                                                                     self.betas[split])
-                    except FloatingPointError:
-                        data_to_send[split] = "early_stop"
+                    logging.info(f'Get and export model for {split}')
+                    opt_result = opt_results.get(split, None)
 
-                data_to_send = jsonpickle.encode(data_to_send)
+                    if opt_result is None:
+                        continue
 
-                if self.coordinator:
-                    self.data_incoming.append(data_to_send)
-                    state = state_global_aggregation
-                else:
-                    self.data_outgoing = data_to_send
-                    self.status_available = True
-                    state = state_wait_for_aggregation
-                    print(f'[CLIENT] Sending computation data to coordinator', flush=True)
+                    model: Client = self.models[split]
+                    sksurv_obj = model.to_sksurv(opt_result)
+                    self.svm[split] = sksurv_obj
 
-            if state == state_wait_for_aggregation:
-                print("Wait for aggregation")
-                self.progress = 'wait for aggregation'
-                if len(self.data_incoming) > 0:
-                    print("Received aggregation data from coordinator.")
-                    data_decoded = jsonpickle.decode(self.data_incoming[0])
-                    self.betas, self.betas_finished = data_decoded[0], data_decoded[1]
-                    self.data_incoming = []
-                    if False in self.betas_finished.values() and self.max_iter > self.iter_counter:
-                        state = state_local_computation
-                    else:
-                        print("Beta update finished.")
-                        for split in self.splits:
-                            self.models[split].set_coefs(self.betas[split])
-                        state = state_writing_results
+                    path = os.path.join(split.replace("/input", "/output"), self.model_output)
+                    logging.debug(f"Writing model to {path}")
+                    with open(path, "wb") as fh:
+                        pickle.dump(sksurv_obj, fh)
+                state = state_generate_predictions
 
-            # GLOBAL PART
-
-            if state == state_global_aggregation:
-                print("Global computation")
-                self.progress = 'computing...'
-                if len(self.data_incoming) == len(self.clients):
-                    print("Received data of all clients")
-                    data = [jsonpickle.decode(client_data) for client_data in self.data_incoming]
-                    self.data_incoming = []
-                    for split in self.splits.keys():
-                        if not self.betas_finished[split]:
-                            print(f'Aggregate {split}')
-                            split_data = []
-                            for client in data:
-                                split_data.append(client[split])
-                            beta, beta_finished = self.models[split].aggregate_beta(split_data)
-                            self.betas[split] = beta
-                            self.betas_finished[split] = beta_finished
-                    data_to_broadcast = jsonpickle.encode([self.betas, self.betas_finished])
-                    self.data_outgoing = data_to_broadcast
-                    self.status_available = True
-                    print(f'[COORDINATOR] Broadcasting computation data to clients', flush=True)
-                    if False in self.betas_finished.values() and self.max_iter > self.iter_counter:
-                        print(f'Beta update not finished for all splits.')
-                        state = state_local_computation
-                    else:
-                        print("Beta update finished.")
-                        for split in self.splits.keys():
-                            self.models[split].set_coefs(self.betas[split])
-                        state = state_writing_results
-
-            if state == state_writing_results:
-                print("Writing results")
+            if state == state_generate_predictions:
+                self.progress = "generate predictions on test data..."
                 for split in self.splits.keys():
-                    print(f'Write {split}')
-                    model = self.models[split]
+                    logging.info(f'Generate predictions for {split}')
+                    logging.debug(f'Load test data for {split}')
+                    X_test, y_test = self.read_survival_data(os.path.join(split, self.test_filename))
+                    logging.debug(f'Load model for {split}')
+                    svm: FastSurvivalSVM = self.svm[split]
 
-                    joblib.dump(model, split.replace("/input", "/output") + '/model.pkl')
+                    logging.debug(f'Generate predictions for {split}')
+                    predictions: NDArray[float] = svm.predict(X_test)
 
-                    y_pred = pd.DataFrame(model.predict(self.test_splits[split][0]), columns=["y_pred"])
-                    y_proba = pd.DataFrame(model.predict_proba(self.test_splits[split][0]))
-                    y_pred.to_csv(split.replace("/input", "/output") + "/" + self.pred_output, index=False)
-                    y_proba.to_csv(split.replace("/input", "/output") + "/" + self.proba_output, index=False)
+                    # re-add tte and event column
+                    X_test[self.label_time_to_event] = y_test['Survival']
+                    X_test[self.label_event] = y_test['Status']
+                    # add predictions to dataframe
+                    X_test['predicted_tte'] = predictions.tolist()
 
-                if self.coordinator:
-                    self.data_incoming = ['DONE']
-                    state = state_finishing
-                else:
-                    self.data_outgoing = 'DONE'
-                    self.status_available = True
-                    break
+                    pred_output_path = os.path.join(split.replace("/input", "/output"), self.pred_output)
+                    logging.debug(f"Writing predictions to {pred_output_path}")
+                    X_test.to_csv(pred_output_path, sep=self.sep, index=False)
+                state = state_shutdown
 
-            if state == state_finishing:
-                print("Finishing")
-                self.progress = 'finishing...'
-                if len(self.data_incoming) == len(self.clients):
-                    self.status_finished = True
-                    break
+            if state == state_shutdown:
+                self.progress = "finished"
+                logging.info("Finished")
+                self.status_finished = True
+                break
 
             time.sleep(1)
 

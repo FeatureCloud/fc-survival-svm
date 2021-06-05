@@ -28,7 +28,7 @@ fc_survival_svm:
     train: "train_encoded.csv"
     test: "test_encoded.csv"
   output:
-    model: "model.pickle"
+    model: "model.pkl"
     pred: "pred.csv"
     test: "test.csv"
   format:
