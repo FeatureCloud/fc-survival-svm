@@ -1,9 +1,10 @@
+import _queue
 import logging
 import os
 import shutil
 import threading
 import time
-from typing import Any, Dict, Union, List
+from typing import Any, Dict, Union, List, Optional
 
 import joblib
 import jsonpickle
@@ -14,8 +15,9 @@ from nptyping import NDArray, Bool
 from scipy.optimize import OptimizeResult
 
 from federated_pure_regression_survival_svm.model import Coordinator, Client, SurvivalData, SharedConfig, ObjectivesW, \
-    ObjectivesS
-from federated_pure_regression_survival_svm.stepwise_newton_cg import NewtonCgStateMachine, UpdateW, UpdateS
+    ObjectivesS, LocalResult, OptFinished
+from federated_pure_regression_survival_svm.stepwise_newton_cg import NewtonCgStateMachine, UpdateW, UpdateS, \
+    SteppedEventBasedNewtonCgOptimizer
 
 
 class AppLogic:
@@ -170,6 +172,51 @@ class AppLogic:
         self.status_available = False
         return self.data_outgoing
 
+    def _all_finished(self, models: Dict[str, Coordinator]):
+        for model in models.values():
+            optimizer: SteppedEventBasedNewtonCgOptimizer = model.newton_optimizer
+            if not optimizer.finished:
+                return False
+        return True
+
+    def _get_all_requests(self, models: Dict[str, Coordinator], recheck_timeout=1):
+        requests: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Request]] = {k: None for k, v in models.items()}
+        for model_identifier, coordinator in models.items():
+            optimizer: SteppedEventBasedNewtonCgOptimizer = coordinator.newton_optimizer
+            while not optimizer.finished:
+                try:
+                    requests[model_identifier] = optimizer.check_pending_requests(block=False, timeout=recheck_timeout)
+                    break
+                except _queue.Empty:
+                    continue
+        return requests
+
+    def _fulfill_all_requests_local(self, requests: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Request]], models: Dict[str, Coordinator]):
+        local_results: Dict[str, Optional[LocalResult]] = {k: None for k, v in models.items()}
+        for model_identifier, request in requests.items():
+            if request is None:
+                continue
+            model: Client = models[model_identifier]
+            local_results[model_identifier] = model.handle_computation_request(request)
+        return local_results
+
+    def _fulfill_all_requests_global(self, local_results: Dict[str, Optional[List[LocalResult]]], models: Dict[str, Coordinator]):
+        aggregated_results: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = {k: None for k, v in models.items()}
+        for model_identifier, local_result in local_results.items():
+            if local_result is None:
+                continue
+            model: Coordinator = models[model_identifier]
+            aggregated_results[model_identifier] = model.aggregate_local_result(local_result)
+        return aggregated_results
+
+    def _inform_all(self, aggregated_results: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]], models: Dict[str, Coordinator]):
+        for model_identifier, aggregated_result in aggregated_results.items():
+            if aggregated_result is None:
+                continue
+            model: Coordinator = models[model_identifier]
+            optimizer: SteppedEventBasedNewtonCgOptimizer = model.newton_optimizer
+            optimizer.resolve(aggregated_result)
+
     def app_flow(self):
         # This method contains a state machine for the client and coordinator instance
 
@@ -179,10 +226,11 @@ class AppLogic:
         state_preprocessing = 3
         state_send_data_attributes = 3.1
         state_global_aggregation_of_data_attributes = 3.2
-        state_wait_for_aggregation_of_data_attributes = 3.3
-        state_global_mainloop = 3.4
-        state_global_stepwise_calculation_listener = 3.4
-        state_local_calculation_requests_listener = 3.6
+        state_global_optimization = 3.4
+        state_local_optimization_calculation_requests_listener = 3.6
+        state_send_global_model = 3.7
+        state_set_global_model = 3.8
+
         state_local_computation = 4
         state_wait_for_aggregation = 5
         state_global_aggregation = 6
@@ -249,7 +297,7 @@ class AppLogic:
                 else:
                     self.data_outgoing = data_to_send
                     self.status_available = True
-                    state = state_local_calculation_requests_listener
+                    state = state_local_optimization_calculation_requests_listener
                     logging.info(f'[CLIENT] Sending attributes to coordinator')
 
             if state == state_global_aggregation_of_data_attributes:
@@ -267,11 +315,12 @@ class AppLogic:
                             split_data.append(client[split])
                         logging.debug(f"Data attributes at split {split}: {split_data}")
                         self.models[split].set_data_attributes(split_data)
-                        self.models[split].set_initial_w_and_prime_optimizer()
-                        self.requests[split] = self.models[split].newton_optimizer.next(None)
+                        self.models[split].set_initial_w_and_init_optimizer()
 
-                    logging.debug(self.requests)
-                    data_to_send = jsonpickle.encode(self.requests)
+                    requests = self._get_all_requests(self.models)
+
+                    logging.debug(requests)
+                    data_to_send = jsonpickle.encode(requests)
 
                     if self.coordinator:
                         self.data_incoming.append(data_to_send)
@@ -280,75 +329,19 @@ class AppLogic:
                     self.status_available = True
                     logging.info(f'[COORDINATOR] Sending initial calculation requests')
 
-                    state = state_local_calculation_requests_listener
+                    state = state_local_optimization_calculation_requests_listener
 
-            if state == state_local_calculation_requests_listener:
-                self.progress = 'waiting for calculation requests...'
-                if len(self.data_incoming) > 0:
-                    logging.info("Received calculation requests")
-                    self.progress = 'processing calculation requests...'
-                    requests = jsonpickle.decode(self.data_incoming[0])
-                    self.data_incoming = []
-
-                    results = {}
-                    for split in self.splits:
-                        logging.debug(f"Request for split {split}: {requests[split]}")
-                        request = requests[split]
-                        data = None
-
-                        if isinstance(request, OptimizeResult):
-                            data = None
-                        elif isinstance(request, NewtonCgStateMachine.RequestWDependent):
-                            request: NewtonCgStateMachine.RequestWDependent
-                            data = self.models[split].get_values_depending_on_w(request.xk)
-                        elif isinstance(request, NewtonCgStateMachine.RequestHessian):
-                            request: NewtonCgStateMachine.RequestHessian
-                            data = self.models[split].hessian_func(request.psupi)
-
-                        results[split] = data
-
-                    logging.debug(f"Local results:\n{results}")
-                    data_to_send = jsonpickle.encode(results)
-
-                    if self.coordinator:
-                        self.data_incoming.append(data_to_send)
-                        state = state_global_mainloop
-                    else:
-                        self.data_outgoing = data_to_send
-                        self.status_available = True
-                        state = state_local_calculation_requests_listener
-                        logging.info(f'[CLIENT] Sending attributes to coordinator')
-
-
-                    # results = {}
-                    # for split in self.splits.keys():
-                    #     w = requests[split]
-                    #     logging.debug(f"Got {w} as initial weights for {split}")
-                    #     objectivesW = self.models[split].get_values_depending_on_w(w)
-                    #     results[split] = objectivesW
-                    #
-                    # data_to_send = jsonpickle.encode(results)
-                    #
-                    # if self.coordinator:
-                    #     self.data_incoming.append(data_to_send)
-                    #     state = state_global_start_stepwise_calculation
-                    # else:
-                    #     self.data_outgoing = data_to_send
-                    #     self.status_available = True
-                    #     state = state_local_stepwise_calculation_listener
-                    #     logging.info(f'[CLIENT] Sending initial local sum of zeta squared and local gradient value')
-
-
-            if state == state_global_mainloop:
+            if state == state_global_optimization:
                 logging.debug(self.data_incoming)
                 self.progress = f'waiting for results of calculation requests... {len(self.data_incoming)} of {len(self.clients)}'
+
                 if len(self.data_incoming) == len(self.clients):
                     self.progress = 'starting global calculation...'
                     logging.debug("Received results of calculation requests")
                     data = [jsonpickle.decode(client_data) for client_data in self.data_incoming]
                     self.data_incoming = []
 
-
+                    local_results: Dict[str, Optional[List[LocalResult]]] = {k: None for k, v in self.splits.items()}
                     for split in self.splits.keys():
                         logging.debug(f'Aggregate {split}')
                         split_data = []
@@ -356,28 +349,78 @@ class AppLogic:
                             split_data.append(client[split])
                         logging.debug(f"Result for {split}: {split_data}")
 
-                        result = split_data
+                        local_results[split] = split_data
 
-                        if isinstance(result[0], ObjectivesW):
-                            result: List[ObjectivesW]
-                            aggregated: UpdateW = self.models[split].update_fval_and_gval(result)
-                            self.requests[split] = self.models[split].newton_optimizer.next(aggregated)
-                        elif isinstance(result[0], ObjectivesS):
-                            result: List[ObjectivesS]
-                            aggregated: UpdateS = self.models[split].aggregated_hessian(result)
-                            self.requests[split] = self.models[split].newton_optimizer.next(aggregated)
+                    logging.debug(f"Local results: {local_results}")
+                    aggregated = self._fulfill_all_requests_global(local_results, self.models)
+                    logging.debug(f"Aggregated: {aggregated}")
+                    self._inform_all(aggregated, self.models)
 
-                    logging.debug(self.requests)
-                    data_to_send = jsonpickle.encode(self.requests)
+                    requests = self._get_all_requests(self.models)
+                    logging.debug(f"Requests: {requests}")
 
-                    if self.coordinator:
-                        self.data_incoming.append(data_to_send)
+                    if self._all_finished(self.models):
+                        logging.info('Optimization for all splits finished')
+                        state = state_send_global_model
+                    else:
+                        data_to_send = jsonpickle.encode(requests)
 
-                    self.data_outgoing = data_to_send
-                    self.status_available = True
-                    logging.info(f'[COORDINATOR] Sending calculation requests')
+                        if self.coordinator:
+                            self.data_incoming.append(data_to_send)
 
-                    state = state_local_calculation_requests_listener
+                        self.data_outgoing = data_to_send
+                        self.status_available = True
+                        logging.info(f'[COORDINATOR] Sending calculation requests')
+                        state = state_local_optimization_calculation_requests_listener
+
+            if state == state_local_optimization_calculation_requests_listener:
+                self.progress = 'waiting for calculation requests...'
+                if len(self.data_incoming) > 0:
+                    logging.info("Received calculation requests")
+                    self.progress = 'processing calculation requests...'
+                    requests = jsonpickle.decode(self.data_incoming[0])
+                    self.data_incoming = []
+
+                    if isinstance(requests, OptFinished):
+                        logging.debug("Received OptFinished signal")
+                        state = state_set_global_model
+                        self.opt_result: OptFinished = requests
+                    else:
+                        results = self._fulfill_all_requests_local(requests, self.models)
+
+                        logging.debug(f"Local results:\n{results}")
+                        data_to_send = jsonpickle.encode(results)
+
+                        if self.coordinator:
+                            self.data_incoming.append(data_to_send)
+                            state = state_global_optimization
+                        else:
+                            self.data_outgoing = data_to_send
+                            self.status_available = True
+                            state = state_local_optimization_calculation_requests_listener
+                            logging.info(f'[CLIENT] Sending attributes to coordinator')
+
+            if state == state_send_global_model:
+                self.progress = 'optimization finished...'
+                opt_results: Dict[str, OptimizeResult] = {k: None for k, v in self.splits.items()}
+                for split in self.splits.keys():
+                    model: Coordinator = self.models[split]
+                    optimizer: SteppedEventBasedNewtonCgOptimizer = model.newton_optimizer
+                    opt_results[split] = optimizer.result
+                logging.debug(f'Optimizers: {opt_results}')
+
+                data_to_send = jsonpickle.encode(OptFinished(opt_results=opt_results))
+
+                if self.coordinator:
+                    self.data_incoming.append(data_to_send)
+
+                self.data_outgoing = data_to_send
+                self.status_available = True
+                state = state_local_optimization_calculation_requests_listener
+
+            if state == state_set_global_model:
+                logging.debug(f"GLOBAL MODELS {self.opt_result}")
+
 
             if state == state_local_computation:
                 print("Perform local beta update")

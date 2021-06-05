@@ -394,7 +394,7 @@ class SteppedEventBasedNewtonCgOptimizer(object):
         xk: NDArray
 
     @dataclass
-    class RequestHessian(Request):
+    class RequestHessp(Request):
         xk: NDArray
         psupi: NDArray
 
@@ -407,8 +407,8 @@ class SteppedEventBasedNewtonCgOptimizer(object):
         aggregated_gradient: NDArray[Float64]
 
     @dataclass
-    class ResolvedHessian(Resolved):
-        aggregated_hessian: NDArray[Float64]
+    class ResolvedHessp(Resolved):
+        aggregated_hessp: NDArray[Float64]
 
     def __init__(self, x0: Union[NDArray[float], List[Union[float, int]]], **kwargs):
         self._incoming: Queue[SteppedEventBasedNewtonCgOptimizer.Resolved] = Queue(maxsize=1)
@@ -450,7 +450,7 @@ class SteppedEventBasedNewtonCgOptimizer(object):
         self._register_request(self.RequestWDependent(xk=x))
 
     def _request_calculations_depending_on_s(self, x: NDArray, p: NDArray):
-        self._register_request(self.RequestHessian(xk=x, psupi=p))
+        self._register_request(self.RequestHessp(xk=x, psupi=p))
 
     def has_pending(self) -> bool:
         return not self._outgoing.empty()
@@ -483,11 +483,11 @@ class SteppedEventBasedNewtonCgOptimizer(object):
         self._request_calculations_depending_on_s(x, p)
         result: SteppedEventBasedNewtonCgOptimizer.Resolved = self._get_resolved()
 
-        if not isinstance(result, SteppedEventBasedNewtonCgOptimizer.ResolvedHessian):
+        if not isinstance(result, SteppedEventBasedNewtonCgOptimizer.ResolvedHessp):
             raise Exception('Unexpected resolve type')
-        result: SteppedEventBasedNewtonCgOptimizer.ResolvedHessian
+        result: SteppedEventBasedNewtonCgOptimizer.ResolvedHessp
 
-        self.hval = result.aggregated_hessian
+        self.hval = result.aggregated_hessp
 
     def _start_minimize(self, x0: Union[NDArray[float], List[Union[float, int]]], **kwargs):
         @np_cache
@@ -539,8 +539,8 @@ if __name__ == '__main__':
                                                                      aggregated_gradient=rosen_der(req.xk))
 
 
-    def calc_hessp_at(req: SteppedEventBasedNewtonCgOptimizer.RequestHessian):
-        return SteppedEventBasedNewtonCgOptimizer.ResolvedHessian(aggregated_hessian=rosen_hess_prod(req.xk, req.psupi))
+    def calc_hessp_at(req: SteppedEventBasedNewtonCgOptimizer.RequestHessp):
+        return SteppedEventBasedNewtonCgOptimizer.ResolvedHessp(aggregated_hessian=rosen_hess_prod(req.xk, req.psupi))
 
 
     def handle_computation_request(
@@ -548,8 +548,8 @@ if __name__ == '__main__':
         if isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestWDependent):
             request: SteppedEventBasedNewtonCgOptimizer.RequestWDependent
             return calc_objective_function_and_gradient_at(request)
-        elif isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestHessian):
-            request: SteppedEventBasedNewtonCgOptimizer.RequestHessian
+        elif isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestHessp):
+            request: SteppedEventBasedNewtonCgOptimizer.RequestHessp
             return calc_hessp_at(request)
 
 
