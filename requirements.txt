@@ -1,9 +1,9 @@
-bottle
-numpy
-scipy
-scikit-learn
-matplotlib
-jsonpickle
-joblib
-pyyaml
+bottle # webserver
+jsonpickle # to send complex datatypes
+numpy # for mathematical computations
+pyyaml # to read config file
+
 pandas
+nptyping
+scipy
+sklearn
