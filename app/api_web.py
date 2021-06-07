@@ -7,25 +7,58 @@ from .logic import logic
 
 web_server = Bottle()
 
-
 # CAREFUL: Do NOT perform any computation-related tasks inside these methods, nor inside functions called from them!
 # Otherwise your app does not respond to calls made by the FeatureCloud system quickly enough
 # Use the threaded loop in the app_flow function inside the file logic.py instead
 
-TEMPLATE = r"""<!DOCTYPE html>
+TEMPLATE = r"""<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Survival SVM</title>
+  <head>
+    <meta charset="utf-8">
+    <title>Survival SVM | Feature Cloud</title>
+    <base href="/">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <link rel="icon" href="https://featurecloud.ai/assets/fc.ico">
+    <link rel="stylesheet" href="https://featurecloud.ai/styles.9a241e552b75a88f714e.css">
 </head>
 <body>
-    <div><b>Progress</b>: {{ progress }}</div>
-    <div><b>Iteration</b>: {{ iteration }}</div>
-    {% if states is not none %}
-        {% for split, state in states.items() %}
-            <div><b>Split {{ split }}</b>: {{ state.state }}</div>
-        {% endfor %}
-    {% endif %}
+    <div class="main-wrapper">
+      <main>
+        <section class="hero is-link is-small">
+          <div class="hero-body">
+            <div class="container is-fluid">
+              <section class="section" style="padding: 1rem 1rem;">
+                <h1 class="title">
+                  Survival SVM
+                </h1>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <div class="container is-fluid">
+        <section class="section">
+          <div class="card" style="margin-bottom: 15px;">
+            <header class="card-header">
+              <h2 class="card-header-title">Progress</h2>
+            </header>
+            <div class="card-content">
+              {{ progress }}              
+              <div><b>Iteration</b>: {{ iteration }}</div>
+                {% if states is not none %}
+                  {% for split, state in states.items() %}
+                    <div><b>Split {{ split }}</b>: {{ state.state }}</div>
+                  {% endfor %}
+                {% endif %}
+            </div>
+          </div>
+        </section>
+        </div>
+      </main>
+    </div>
 </body>
 </html>
 """
