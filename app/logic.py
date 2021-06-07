@@ -73,6 +73,7 @@ class AppLogic:
         self.splits: Dict[str, Tuple[pd.DataFrame, NDArray]] = {}
         self.train_data_paths: Dict[str, str] = {}
         self.svm: Dict[str, FastSurvivalSVM] = {}
+        self.training_states: Optional[Dict[str, Dict[str, Any]]] = None
 
     @staticmethod
     def md5_hexdigest(path):
@@ -197,6 +198,15 @@ class AppLogic:
                 except _queue.Empty:
                     continue
         return requests
+
+    def _get_states(self, requests: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Request]]):
+        states = dict.fromkeys(requests.keys())
+        for split_name, request in requests.items():
+            if request is None:
+                states[split_name] = {"state": "Finished"}
+            else:
+                states[split_name] = {"state": "Training"}
+        return states
 
     def _fulfill_all_requests_local(self, requests: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Request]],
                                     models: Dict[str, Coordinator]):
@@ -390,11 +400,14 @@ class AppLogic:
                     requests = jsonpickle.decode(self.data_incoming[0])
                     self.data_incoming = []
 
+                    self.iteration += 1
+
                     if isinstance(requests, OptFinished):
                         logging.debug("Received OptFinished signal")
                         state = state_set_global_model
                         self.opt_finished_signal: OptFinished = requests
                     else:
+                        self.training_states = self._get_states(requests)
                         results = self._fulfill_all_requests_local(requests, self.models)
 
                         logging.debug(f"Local results:\n{results}")
