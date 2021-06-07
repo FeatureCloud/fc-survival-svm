@@ -57,6 +57,7 @@ class AppLogic:
         self.model_output = None
         self.pred_output = None
         self.test_output = None
+        self.train_output = None
 
         self.sep = None
         self.label_time_to_event = None
@@ -91,7 +92,8 @@ class AppLogic:
 
             self.model_output = config['output']['model']
             self.pred_output = config['output']['pred']
-            self.test_output = config['output']['test']
+            self.train_output = config['output'].get("train", self.train_filename)  # default value
+            self.test_output = config['output'].get("test", self.test_filename)  # default value
 
             self.sep = config['format']['sep']
             self.label_time_to_event = config["format"]["label_survival_time"]
@@ -485,6 +487,13 @@ class AppLogic:
 
                     with open(meta_output_path, "w") as fh:
                         yaml.dump(metadata, fh)
+
+                    # copy inputs to outputs
+                    output_split_dir = split.replace(self.INPUT_DIR, self.OUTPUT_DIR)
+                    shutil.copyfile(os.path.join(split, self.train_filename),
+                                    os.path.join(output_split_dir, self.train_output))
+                    shutil.copyfile(os.path.join(split, self.test_filename),
+                                    os.path.join(output_split_dir, self.test_output))
 
                 state = state_generate_predictions
 

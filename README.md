@@ -10,6 +10,7 @@ A Survival SVM FeatureCloud app, allowing a federated training of a Survival SVM
 ## Output
 - `model`: containing a dump of the trained SVM object
 - `pred`: containing the predictions generated on the local test data
+- `train`: containing the local training data
 - `test`: containing the local test data
 
 ## Workflows
@@ -30,7 +31,8 @@ fc_survival_svm:
   output:
     model: "model.pkl"
     pred: "pred.csv"
-    test: "test.csv"
+    train: "train.csv"  # optional, default: fc_survival_svm.input.train; filename name for a copy of the train input
+    test: "test.csv"  # optional, default: fc_survival_svm.input.train; filename name for a copy of the test input
   format:
     sep: ","
     label_survival_time: "tte"
