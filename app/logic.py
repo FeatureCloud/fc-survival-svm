@@ -1,23 +1,21 @@
 import _queue
+import jsonpickle
 import logging
+import numpy as np
 import os
+import pandas as pd
 import pickle
 import shutil
 import threading
 import time
-from typing import Any, Dict, Union, List, Optional, Tuple
-
-import jsonpickle
-import numpy as np
-import pandas as pd
 import yaml
-from nptyping import NDArray, Bool
-from scipy.optimize import OptimizeResult
-from sksurv.svm import FastSurvivalSVM
-
 from federated_pure_regression_survival_svm.model import Coordinator, Client, SurvivalData, SharedConfig, LocalResult, \
     OptFinished
 from federated_pure_regression_survival_svm.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
+from nptyping import NDArray, Bool
+from scipy.optimize import OptimizeResult
+from sksurv.svm import FastSurvivalSVM
+from typing import Any, Dict, Union, List, Optional, Tuple
 
 
 class AppLogic:
@@ -200,7 +198,8 @@ class AppLogic:
 
     def _fulfill_all_requests_global(self, local_results: Dict[str, Optional[List[LocalResult]]],
                                      models: Dict[str, Coordinator]):
-        aggregated_results: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = dict.fromkeys(models.keys())
+        aggregated_results: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = dict.fromkeys(
+            models.keys())
         for model_identifier, local_result in local_results.items():
             if local_result is None:
                 continue
