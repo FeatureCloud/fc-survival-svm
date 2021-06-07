@@ -453,13 +453,14 @@ class AppLogic:
                     logging.debug(f"Writing metadata to {meta_output_path}")
 
                     # unpack coefficients
-                    coefficients = {}
+                    beta = {}
                     features = self.splits[split][0].columns.values
                     weights = sksurv_obj.coef_.tolist()
                     for feature_name, feature_weight in zip(features, weights):
-                        coefficients[feature_name] = feature_weight
+                        beta[feature_name] = feature_weight
+                    bias = None
                     if self.fit_intercept is not None:
-                        coefficients["intercept"] = float(sksurv_obj.intercept_)
+                        bias = float(sksurv_obj.intercept_)
 
                     metadata = {
                         "model": {
@@ -471,7 +472,10 @@ class AppLogic:
                                 "fit_intercept": sksurv_obj.fit_intercept,
                                 "max_iter": self.max_iter,
                             },
-                            "coefficients": coefficients,
+                            "coefficients": {
+                                "weights": beta,
+                                "intercept": bias,
+                            },
                             "training_data": {
                                 "file": self.train_data_paths[split].replace(self.INPUT_DIR, "."),
                                 "file_md5": self.md5_hexdigest(self.train_data_paths[split]),
