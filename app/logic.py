@@ -437,6 +437,16 @@ class AppLogic:
                     # write model parameters as meta file
                     meta_output_path = os.path.join(split.replace("/input", "/output"), "meta.yml")
                     logging.debug(f"Writing metadata to {meta_output_path}")
+
+                    # unpack coefficients
+                    coefficients = {}
+                    features = self.splits[split][0].columns.values
+                    weights = sksurv_obj.coef_.tolist()
+                    for feature_name, feature_weight in zip(features, weights):
+                        coefficients[feature_name] = feature_weight
+                    if self.fit_intercept is not None:
+                        coefficients["intercept"] = float(sksurv_obj.intercept_)
+
                     metadata = {
                         "model": {
                             "name": "FederatedPureRegressionSurvivalSVM",
@@ -445,8 +455,7 @@ class AppLogic:
                                 "alpha": sksurv_obj.alpha,
                                 "rank_ratio": sksurv_obj.rank_ratio,
                                 "fit_intercept": sksurv_obj.fit_intercept,
-                                "coef_": str(sksurv_obj.coef_),
-                                "intercept_": float(sksurv_obj.intercept_),
+                                "coefficients": coefficients
                             },
                         },
                         "split": split,

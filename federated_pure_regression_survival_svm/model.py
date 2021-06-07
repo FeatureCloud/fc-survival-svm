@@ -261,7 +261,6 @@ class Client(object):
             fss.intercept_ = coef[0]
         else:
             fss.coef_ = coef
-            fss.intercept_ = None
 
         if not optimize_result.success:
             warnings.warn(('Optimization did not converge: ' + optimize_result.message),
