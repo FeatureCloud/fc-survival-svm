@@ -426,13 +426,35 @@ class AppLogic:
                         continue
 
                     model: Client = self.models[split]
-                    sksurv_obj = model.to_sksurv(opt_result)
+                    sksurv_obj: FastSurvivalSVM = model.to_sksurv(opt_result)
                     self.svm[split] = sksurv_obj
 
-                    path = os.path.join(split.replace("/input", "/output"), self.model_output)
-                    logging.debug(f"Writing model to {path}")
-                    with open(path, "wb") as fh:
+                    # write pickled model
+                    pickle_output_path = os.path.join(split.replace("/input", "/output"), self.model_output)
+                    logging.debug(f"Writing model to {pickle_output_path}")
+                    with open(pickle_output_path, "wb") as fh:
                         pickle.dump(sksurv_obj, fh)
+
+                    # write model parameters as meta file
+                    meta_output_path = os.path.join(split.replace("/input", "/output"), "meta.yml")
+                    logging.debug(f"Writing metadata to {meta_output_path}")
+                    metadata = {
+                        "model": {
+                            "name": "FederatedPureRegressionSurvivalSVM",
+                            "version": "0.0.1",
+                            "parameters": {
+                                "alpha": sksurv_obj.alpha,
+                                "rank_ratio": sksurv_obj.rank_ratio,
+                                "fit_intercept": sksurv_obj.fit_intercept,
+                                "coef_": str(sksurv_obj.coef_),
+                                "intercept_": float(sksurv_obj.intercept_),
+                            },
+                        },
+                        "split": split,
+                    }
+                    with open(meta_output_path, "w") as fh:
+                        yaml.dump(metadata, fh)
+
                 state = state_generate_predictions
 
             if state == state_generate_predictions:
