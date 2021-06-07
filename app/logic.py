@@ -1,4 +1,6 @@
 import _queue
+import hashlib
+
 import jsonpickle
 import logging
 import numpy as np
@@ -69,7 +71,17 @@ class AppLogic:
         self.max_iter = None
 
         self.splits: Dict[str, Tuple[pd.DataFrame, NDArray]] = {}
+        self.train_data_paths: Dict[str, str] = {}
         self.svm: Dict[str, FastSurvivalSVM] = {}
+
+    @staticmethod
+    def md5_hexdigest(path):
+        with open(path, "rb") as f:
+            file_hash = hashlib.md5()
+            while chunk := f.read(8192):
+                file_hash.update(chunk)
+
+        return file_hash.hexdigest()
 
     def read_config(self):
         with open(os.path.join(self.INPUT_DIR, "config.yml")) as f:
@@ -260,7 +272,9 @@ class AppLogic:
                     else:
                         self.models[split] = Client()
 
-                    self.splits[split] = self.read_survival_data(os.path.join(split, self.train_filename))
+                    train_data_path = os.path.join(split, self.train_filename)
+                    self.splits[split] = self.read_survival_data(train_data_path)
+                    self.train_data_paths[split] = train_data_path
                 state = state_preprocessing
 
             if state == state_preprocessing:
@@ -451,15 +465,20 @@ class AppLogic:
                         "model": {
                             "name": "FederatedPureRegressionSurvivalSVM",
                             "version": "0.0.1",
-                            "parameters": {
+                            "training_parameters": {
                                 "alpha": sksurv_obj.alpha,
                                 "rank_ratio": sksurv_obj.rank_ratio,
                                 "fit_intercept": sksurv_obj.fit_intercept,
-                                "coefficients": coefficients
+                                "max_iter": self.max_iter,
+                            },
+                            "coefficients": coefficients,
+                            "training_data": {
+                                "file": self.train_data_paths[split].replace(self.INPUT_DIR, "."),
+                                "file_md5": self.md5_hexdigest(self.train_data_paths[split]),
                             },
                         },
-                        "split": split,
                     }
+
                     with open(meta_output_path, "w") as fh:
                         yaml.dump(metadata, fh)
 
