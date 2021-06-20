@@ -1,4 +1,5 @@
 import _queue
+import abc
 import logging
 import os
 import pickle
@@ -20,7 +21,7 @@ from federated_pure_regression_survival_svm.model import Coordinator, Client, Su
 from federated_pure_regression_survival_svm.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
 
 
-class Communication(object):
+class Communication(abc.ABC):
     def __init__(self):
         self.is_coordinator = None
         self.num_clients = None
@@ -59,6 +60,24 @@ class Communication(object):
         self.data_outgoing = data
         self.status_available = True
 
+    @abc.abstractmethod
+    def send_to_coordinator(self, data):
+        pass
+
+    @abc.abstractmethod
+    def broadcast(self, data):
+        pass
+
+    @abc.abstractmethod
+    def wait_for_data_from_all(self, timeout: int = 3):
+        pass
+
+    @abc.abstractmethod
+    def wait_for_data(self, timeout: int = 3):
+        pass
+
+
+class JsonEncodedCommunication(Communication):
     def _encode(self, data):
         return jsonpickle.encode(data)
 
@@ -131,7 +150,7 @@ class AppLogic:
         self.clients = None
 
         # === Communication ===
-        self.communicator: Communication = Communication()
+        self.communicator: Communication = JsonEncodedCommunication()
 
         # === Internals ===
         self.thread = None
