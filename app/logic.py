@@ -21,13 +21,17 @@ from federated_pure_regression_survival_svm.stepwise_newton_cg import SteppedEve
 
 
 class Communication(object):
-    def __init__(self, is_coordinator: bool, num_clients: int):
-        self.is_coordinator = is_coordinator
-        self.num_clients = num_clients
+    def __init__(self):
+        self.is_coordinator = None
+        self.num_clients = None
 
         self.status_available = False  # Indicates whether there is data to share, if True make sure self.data_out is available
         self.data_incoming = []
         self.data_outgoing = None
+
+    def init(self, is_coordinator: bool, num_clients: int):
+        self.is_coordinator = is_coordinator
+        self.num_clients = num_clients
 
     def handle_incoming(self, data):
         # This method is called when new data arrives
@@ -39,6 +43,10 @@ class Communication(object):
         # This method is called when data is requested
         self.status_available = False
         return self.data_outgoing
+
+    def _assert_initialized(self):
+        if self.is_coordinator is None or self.num_clients is None:
+            raise Exception("Communication object is not properly initialized.")
 
     def _assert_is_coordinator(self):
         if not self.is_coordinator:
@@ -59,6 +67,7 @@ class Communication(object):
 
     def send_to_coordinator(self, data):
         """Data is send to communicator"""
+        self._assert_initialized()
         encoded_data = self._encode(data)
 
         if self.is_coordinator:
@@ -68,6 +77,7 @@ class Communication(object):
 
     def broadcast(self, data):
         """Data is send to each node"""
+        self._assert_initialized()
         encoded_data = self._encode(data)
 
         if self.is_coordinator:
@@ -76,6 +86,7 @@ class Communication(object):
         self._broadcast(encoded_data)
 
     def wait_for_data_from_all(self, timeout: int = 3):
+        self._assert_initialized()
         self._assert_is_coordinator()
 
         while True:
@@ -91,6 +102,8 @@ class Communication(object):
                 time.sleep(timeout)
 
     def wait_for_data(self, timeout: int = 3):
+        self._assert_initialized()
+
         while True:
             if len(self.data_incoming) == 1:
                 logging.debug("Received response")
@@ -118,7 +131,7 @@ class AppLogic:
         self.clients = None
 
         # === Communication ===
-        self.communicator: Optional[Communication] = None
+        self.communicator: Communication = Communication()
 
         # === Internals ===
         self.thread = None
@@ -233,7 +246,7 @@ class AppLogic:
         self.id = client_id
         self.coordinator = coordinator
         self.clients = clients
-        self.communicator = Communication(self.coordinator, len(clients))
+        self.communicator.init(self.coordinator, len(clients))
         logging.info(f'Received setup: {self.id} {self.coordinator} {self.clients}')
 
         self.thread = threading.Thread(target=self.app_flow)
