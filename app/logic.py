@@ -374,8 +374,7 @@ class AppLogic:
                     logging.info(f'[CLIENT] Sending attributes to coordinator')
 
             if state == state_global_aggregation_of_data_attributes:
-                logging.debug(self.data_incoming)
-                self.progress = f'waiting for data attributes... {len(self.data_incoming)} of {len(self.clients)}'
+                self.progress = f'waiting for data attributes...'
                 data = self.communicator.wait_for_data_from_all()
                 self.progress = 'aggregating data attributes...'
 
