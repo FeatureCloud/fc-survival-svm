@@ -20,13 +20,94 @@ from federated_pure_regression_survival_svm.model import Coordinator, Client, Su
 from federated_pure_regression_survival_svm.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
 
 
+class Communication(object):
+    def __init__(self, is_coordinator: bool, num_clients: int):
+        self.is_coordinator = is_coordinator
+        self.num_clients = num_clients
+
+        self.status_available = False  # Indicates whether there is data to share, if True make sure self.data_out is available
+        self.data_incoming = []
+        self.data_outgoing = None
+
+    def handle_incoming(self, data):
+        # This method is called when new data arrives
+        logging.info("Process incoming data....")
+        self.data_incoming.append(data.read())
+
+    def handle_outgoing(self):
+        logging.info("Process outgoing data...")
+        # This method is called when data is requested
+        self.status_available = False
+        return self.data_outgoing
+
+    def _assert_is_coordinator(self):
+        if not self.is_coordinator:
+            raise Exception("This node is not the coordinator. An unexpected function was called.")
+
+    def _send_local_channel(self, data):
+        self.data_incoming.append(data)
+
+    def _broadcast(self, data):
+        self.data_outgoing = data
+        self.status_available = True
+
+    def _encode(self, data):
+        return jsonpickle.encode(data)
+
+    def _decode(self, encoded_data):
+        return jsonpickle.decode(encoded_data)
+
+    def send_to_coordinator(self, data):
+        """Data is send to communicator"""
+        encoded_data = self._encode(data)
+
+        if self.is_coordinator:
+            self._send_local_channel(encoded_data)
+        else:
+            self._broadcast(encoded_data)
+
+    def broadcast(self, data):
+        """Data is send to each node"""
+        encoded_data = self._encode(data)
+
+        if self.is_coordinator:
+            self._send_local_channel(encoded_data)
+
+        self._broadcast(encoded_data)
+
+    def wait_for_data_from_all(self, timeout: int = 3):
+        self._assert_is_coordinator()
+
+        while True:
+            if len(self.data_incoming) == self.num_clients:
+                logging.debug("Received response of all nodes")
+                decoded_data = [self._decode(client_data) for client_data in self.data_incoming]
+                self.data_incoming = []
+                return decoded_data
+            elif len(self.data_incoming) > self.num_clients:
+                raise Exception("Received more data than expected")
+            else:
+                logging.debug(f"Waiting for all nodes to respond. {len(self.data_incoming)} of {self.num_clients}...")
+                time.sleep(timeout)
+
+    def wait_for_data(self, timeout: int = 3):
+        while True:
+            if len(self.data_incoming) == 1:
+                logging.debug("Received response")
+                decoded_data = self._decode(self.data_incoming[0])
+                self.data_incoming = []
+                return decoded_data
+            elif len(self.data_incoming) > 1:
+                raise Exception("Received more data than expected")
+            else:
+                logging.debug("Waiting for node response")
+                time.sleep(timeout)
+
+
 class AppLogic:
 
     def __init__(self):
         # === Status of this app instance ===
-
-        # Indicates whether there is data to share, if True make sure self.data_out is available
-        self.status_available = False
 
         # Only relevant for coordinator, will stop execution when True
         self.status_finished = False
@@ -36,9 +117,8 @@ class AppLogic:
         self.coordinator = None
         self.clients = None
 
-        # === Data ===
-        self.data_incoming = []
-        self.data_outgoing = None
+        # === Communication ===
+        self.communicator: Optional[Communication] = None
 
         # === Internals ===
         self.thread = None
@@ -153,21 +233,21 @@ class AppLogic:
         self.id = client_id
         self.coordinator = coordinator
         self.clients = clients
+        self.communicator = Communication(self.coordinator, len(clients))
         logging.info(f'Received setup: {self.id} {self.coordinator} {self.clients}')
 
         self.thread = threading.Thread(target=self.app_flow)
         self.thread.start()
 
+    @property
+    def status_available(self):
+        return self.communicator.status_available
+
     def handle_incoming(self, data):
-        # This method is called when new data arrives
-        logging.info("Process incoming data....")
-        self.data_incoming.append(data.read())
+        self.communicator.handle_incoming(data)
 
     def handle_outgoing(self):
-        logging.info("Process outgoing data...")
-        # This method is called when data is requested
-        self.status_available = False
-        return self.data_outgoing
+        return self.communicator.handle_outgoing()
 
     def _all_finished(self, models: Dict[str, Coordinator]):
         for model in models.values():
@@ -285,116 +365,88 @@ class AppLogic:
                     data_to_send[split] = self.models[split].generate_data_description()
 
                 logging.debug(f"Data attributes:\n{data_to_send}")
-                data_to_send = jsonpickle.encode(data_to_send)
+                self.communicator.send_to_coordinator(data_to_send)
 
                 if self.coordinator:
-                    self.data_incoming.append(data_to_send)
                     state = state_global_aggregation_of_data_attributes
                 else:
-                    self.data_outgoing = data_to_send
-                    self.status_available = True
                     state = state_local_optimization_calculation_requests_listener
                     logging.info(f'[CLIENT] Sending attributes to coordinator')
 
             if state == state_global_aggregation_of_data_attributes:
                 logging.debug(self.data_incoming)
                 self.progress = f'waiting for data attributes... {len(self.data_incoming)} of {len(self.clients)}'
-                if len(self.data_incoming) == len(self.clients):
-                    self.progress = 'aggregating data attributes...'
-                    logging.debug("Received data attributes of all clients")
-                    data = [jsonpickle.decode(client_data) for client_data in self.data_incoming]
-                    self.data_incoming = []
-                    for split in self.splits.keys():
-                        logging.debug(f'Aggregate {split}')
-                        split_data = []
-                        for client in data:
-                            split_data.append(client[split])
-                        logging.debug(f"Data attributes at split {split}: {split_data}")
-                        self.models[split].set_data_attributes(split_data)
-                        self.models[split].set_initial_w_and_init_optimizer()
+                data = self.communicator.wait_for_data_from_all()
+                self.progress = 'aggregating data attributes...'
 
-                    requests = self._get_all_requests(self.models)
+                for split in self.splits.keys():
+                    logging.debug(f'Aggregate {split}')
+                    split_data = []
+                    for client in data:
+                        split_data.append(client[split])
+                    logging.debug(f"Data attributes at split {split}: {split_data}")
+                    self.models[split].set_data_attributes(split_data)
+                    self.models[split].set_initial_w_and_init_optimizer()
 
-                    logging.debug(requests)
-                    data_to_send = jsonpickle.encode(requests)
+                requests = self._get_all_requests(self.models)
 
-                    if self.coordinator:
-                        self.data_incoming.append(data_to_send)
+                logging.debug(requests)
+                self.communicator.broadcast(requests)
+                logging.info(f'[COORDINATOR] Sending initial calculation requests')
 
-                    self.data_outgoing = data_to_send
-                    self.status_available = True
-                    logging.info(f'[COORDINATOR] Sending initial calculation requests')
-
-                    state = state_local_optimization_calculation_requests_listener
+                state = state_local_optimization_calculation_requests_listener
 
             if state == state_global_optimization:
-                logging.debug(self.data_incoming)
-                self.progress = f'waiting for results of calculation requests... {len(self.data_incoming)} of {len(self.clients)}'
+                self.progress = f'waiting for results of calculation requests...'
+                data = self.communicator.wait_for_data_from_all()
+                self.progress = 'starting global calculation...'
 
-                if len(self.data_incoming) == len(self.clients):
-                    self.progress = 'starting global calculation...'
-                    logging.debug("Received results of calculation requests")
-                    data = [jsonpickle.decode(client_data) for client_data in self.data_incoming]
-                    self.data_incoming = []
+                local_results: Dict[str, Optional[List[LocalResult]]] = {k: None for k, v in self.splits.items()}
+                for split in self.splits.keys():
+                    logging.debug(f'Aggregate {split}')
+                    split_data = []
+                    for client in data:
+                        split_data.append(client[split])
+                    logging.debug(f"Result for {split}: {split_data}")
 
-                    local_results: Dict[str, Optional[List[LocalResult]]] = {k: None for k, v in self.splits.items()}
-                    for split in self.splits.keys():
-                        logging.debug(f'Aggregate {split}')
-                        split_data = []
-                        for client in data:
-                            split_data.append(client[split])
-                        logging.debug(f"Result for {split}: {split_data}")
+                    local_results[split] = split_data
 
-                        local_results[split] = split_data
+                logging.debug(f"Local results: {local_results}")
+                aggregated = self._fulfill_all_requests_global(local_results, self.models)
+                logging.debug(f"Aggregated: {aggregated}")
+                self._inform_all(aggregated, self.models)
 
-                    logging.debug(f"Local results: {local_results}")
-                    aggregated = self._fulfill_all_requests_global(local_results, self.models)
-                    logging.debug(f"Aggregated: {aggregated}")
-                    self._inform_all(aggregated, self.models)
+                requests = self._get_all_requests(self.models)
+                logging.debug(f"Requests: {requests}")
 
-                    requests = self._get_all_requests(self.models)
-                    logging.debug(f"Requests: {requests}")
-
-                    if self._all_finished(self.models):
-                        logging.info('Optimization for all splits finished')
-                        state = state_send_global_model
-                    else:
-                        data_to_send = jsonpickle.encode(requests)
-
-                        if self.coordinator:
-                            self.data_incoming.append(data_to_send)
-
-                        self.data_outgoing = data_to_send
-                        self.status_available = True
-                        logging.info(f'[COORDINATOR] Sending calculation requests')
-                        state = state_local_optimization_calculation_requests_listener
+                if self._all_finished(self.models):
+                    logging.info('Optimization for all splits finished')
+                    state = state_send_global_model
+                else:
+                    self.communicator.broadcast(requests)
+                    logging.info(f'[COORDINATOR] Sending calculation requests')
+                    state = state_local_optimization_calculation_requests_listener
 
             if state == state_local_optimization_calculation_requests_listener:
                 self.progress = 'waiting for calculation requests...'
-                if len(self.data_incoming) > 0:
-                    logging.info("Received calculation requests")
-                    self.progress = 'processing calculation requests...'
-                    requests = jsonpickle.decode(self.data_incoming[0])
-                    self.data_incoming = []
+                requests = self.communicator.wait_for_data()
+                self.progress = 'processing calculation requests...'
 
-                    if isinstance(requests, OptFinished):
-                        logging.debug("Received OptFinished signal")
-                        state = state_set_global_model
-                        self.opt_finished_signal: OptFinished = requests
+                if isinstance(requests, OptFinished):
+                    logging.debug("Received OptFinished signal")
+                    state = state_set_global_model
+                    self.opt_finished_signal: OptFinished = requests
+                else:
+                    results = self._fulfill_all_requests_local(requests, self.models)
+
+                    logging.debug(f"Local results:\n{results}")
+                    self.communicator.send_to_coordinator(results)
+
+                    if self.coordinator:
+                        state = state_global_optimization
                     else:
-                        results = self._fulfill_all_requests_local(requests, self.models)
-
-                        logging.debug(f"Local results:\n{results}")
-                        data_to_send = jsonpickle.encode(results)
-
-                        if self.coordinator:
-                            self.data_incoming.append(data_to_send)
-                            state = state_global_optimization
-                        else:
-                            self.data_outgoing = data_to_send
-                            self.status_available = True
-                            state = state_local_optimization_calculation_requests_listener
-                            logging.info(f'[CLIENT] Sending attributes to coordinator')
+                        state = state_local_optimization_calculation_requests_listener
+                        logging.info(f'[CLIENT] Sending attributes to coordinator')
 
             if state == state_send_global_model:
                 self.progress = 'optimization finished...'
@@ -405,13 +457,8 @@ class AppLogic:
                     opt_results[split] = optimizer.result
                 logging.debug(f'Optimizers: {opt_results}')
 
-                data_to_send = jsonpickle.encode(OptFinished(opt_results=opt_results))
+                self.communicator.broadcast(OptFinished(opt_results=opt_results))
 
-                if self.coordinator:
-                    self.data_incoming.append(data_to_send)
-
-                self.data_outgoing = data_to_send
-                self.status_available = True
                 state = state_local_optimization_calculation_requests_listener
 
             if state == state_set_global_model:
