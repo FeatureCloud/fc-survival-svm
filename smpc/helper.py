@@ -9,7 +9,7 @@ import rsa
 
 from federated_pure_regression_survival_svm.model import ObjectivesW
 
-MAX_RAND_INT: int = 234_234_234_324+
+MAX_RAND_INT: int = 234_234_234_324
 
 @dataclass
 class SMPCMasked:
