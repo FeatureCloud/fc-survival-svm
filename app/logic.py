@@ -483,20 +483,16 @@ class AppLogic:
                 logging.debug(masks_for_split)
 
                 for split in self.splits.keys():
-                    logging.debug("MASK")
                     logging.debug(masks_for_split[split])
                     mask_sum = masks_for_split[split][0]
                     for i in range(1, len(masks_for_split[split])):
                         mask_sum += masks_for_split[split][i]
                     logging.debug(mask_sum)
                     logging.debug(aggregated[split])
-                    logging.debug(aggregated[split].unmasked_obj(mask_sum))
+                    data_description = aggregated[split].unmasked_obj(mask_sum)
 
-                raise NotImplemented  # TODO
-
-                for split in self.splits.keys():
-                    logging.debug(f"Data attributes at split {split}: {split_data}")
-                    self.models[split].set_data_attributes(split_data)
+                    logging.debug(f"Data description at split {split}: {data_description}")
+                    self.models[split].set_data_description(data_description)
                     self.models[split].set_initial_w_and_init_optimizer()
 
                 requests = self._get_all_requests(self.models)

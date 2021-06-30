@@ -284,28 +284,14 @@ class Coordinator(Client):
 
         self.newton_optimizer = None
 
-    def set_data_attributes(self, data_descriptions: List[DataDescription]):
-        # unwrap
-        aggregated_n_features = []
-        aggregated_n_samples = np.zeros(len(data_descriptions))
-        aggregated_sum_of_times = np.zeros(len(data_descriptions))
-        for i, local_data in enumerate(data_descriptions):
-            aggregated_n_features.append(local_data.n_features)
-            aggregated_n_samples[i] = local_data.n_samples
-            aggregated_sum_of_times[i] = local_data.sum_of_times
+    def set_data_description(self, data_descriptions: DataDescription):
+        self.total_n_features = data_descriptions.n_features
+        logging.debug(f"Clients have {self.total_n_features} features")
 
-        # check all clients have reported the same number of features
-        if len(set(aggregated_n_features)) > 1:
-            raise ValueError("Clients reported a differing number of features")
-        self.total_n_features = aggregated_n_features[0]
-        logging.debug(f"Clients agree on having {self.total_n_features} features")
-
-        # get total number of samples
-        self.total_n_samples = np.sum(aggregated_n_samples)
+        self.total_n_samples = data_descriptions.n_samples
         logging.debug(f"Clients have {self.total_n_samples} samples in total")
 
-        # get summed up times
-        self.total_time_sum = np.sum(aggregated_sum_of_times)
+        self.total_time_sum = data_descriptions.sum_of_times
         logging.debug(f"Clients have a summed up time of {self.total_time_sum}")
 
     @property
