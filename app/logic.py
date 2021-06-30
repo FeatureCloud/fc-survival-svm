@@ -519,7 +519,7 @@ class AppLogic:
                     local_results[split] = split_data
 
                 logging.debug(f"Local results: {local_results}")
-                aggregated = self._fulfill_all_requests_global(local_results, self.models)
+                aggregated: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = self._fulfill_all_requests_global(local_results, self.models)
                 logging.debug(f"Aggregated: {aggregated}")
                 self._inform_all(aggregated, self.models)
 
@@ -544,7 +544,7 @@ class AppLogic:
                     state = state_set_global_model
                     self.opt_finished_signal: OptFinished = requests
                 elif isinstance(requests, SMPCRequest):
-                    results = self._fulfil_smpc_sum_up_masks(requests)
+                    results: Dict[str, Any] = self._fulfil_smpc_sum_up_masks(requests)
 
                     logging.debug(f"Local results:\n{results}")
                     self.communicator.send_to_coordinator(results)
@@ -552,7 +552,7 @@ class AppLogic:
                     state = state_local_optimization_calculation_requests_listener
                     logging.info(f'[CLIENT] Sending summed masks to coordinator')
                 else:
-                    results = self._fulfill_all_requests_local(requests, self.models)
+                    results: Dict[str, Optional[LocalResult]] = self._fulfill_all_requests_local(requests, self.models)
 
                     logging.debug(f"Local results:\n{results}")
                     self.communicator.send_to_coordinator(results)
