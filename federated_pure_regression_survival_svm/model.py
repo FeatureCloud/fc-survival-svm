@@ -6,6 +6,7 @@ from typing import Optional, List, Tuple, Dict
 
 import numpy as np
 import pandas as pd
+import rsa
 from nptyping import NDArray, Bool, Float64
 from scipy.optimize import OptimizeResult
 from sklearn.exceptions import ConvergenceWarning
@@ -72,6 +73,9 @@ class ObjectivesW(LocalResult):
 @dataclass
 class ObjectivesS(LocalResult):
     local_hessian: NDArray[Float64]
+
+
+from smpc.helper import MaskedObjectivesW, SMPCMasked, MaskedObjectivesS
 
 
 class Client(object):
@@ -234,13 +238,15 @@ class Client(object):
             local_gradient=self._gradient_func(bias, beta),
         )
 
-    def handle_computation_request(self, request: SteppedEventBasedNewtonCgOptimizer.Request) -> LocalResult:
+    def handle_computation_request(self, request: SteppedEventBasedNewtonCgOptimizer.Request, pub_keys_of_other_parties: Dict[int, rsa.PublicKey]) -> SMPCMasked:
         if isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestWDependent):
             request: SteppedEventBasedNewtonCgOptimizer.RequestWDependent
-            return self._get_values_depending_on_w(request)
+            response: ObjectivesW = self._get_values_depending_on_w(request)
+            return MaskedObjectivesW().mask(response, pub_keys_of_other_parties)
         elif isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestHessp):
             request: SteppedEventBasedNewtonCgOptimizer.RequestHessp
-            return self._hessian_func(request)
+            response: ObjectivesS = self._hessian_func(request)
+            return MaskedObjectivesS().mask(response, pub_keys_of_other_parties)
 
     def to_sksurv(self, optimize_result: OptimizeResult) -> FastSurvivalSVM:
         """
@@ -320,11 +326,9 @@ class Coordinator(Client):
         self.newton_optimizer = SteppedEventBasedNewtonCgOptimizer(w)
         return w
 
-    def aggregated_hessp(self, results: List[ObjectivesS]) -> SteppedEventBasedNewtonCgOptimizer.ResolvedHessp:
+    def aggregated_hessp(self, result: ObjectivesS) -> SteppedEventBasedNewtonCgOptimizer.ResolvedHessp:
         # unwrap
-        aggregated_hessp = results[0].local_hessian
-        for i in range(1, len(results)):
-            aggregated_hessp += results[i].local_hessian
+        aggregated_hessp = result.local_hessian
         logging.debug(f"Aggregated hessian: {aggregated_hessp}")
 
         hess_p = aggregated_hessp
@@ -336,26 +340,23 @@ class Coordinator(Client):
         return val
 
     def aggregate_fval_and_gval(self,
-                                results: List[ObjectivesW]) -> SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent:
+                                result: ObjectivesW) -> SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent:
         # unwrap
-        aggregated_zeta_sq_sums = results[0].local_sum_of_zeta_squared
-        aggregated_gradients = results[0].local_gradient
-        for i in range(1, len(results)):
-            aggregated_zeta_sq_sums += results[i].local_sum_of_zeta_squared
-            aggregated_gradients += results[i].local_gradient
+        aggregated_zeta_sq_sums = result.local_sum_of_zeta_squared
+        aggregated_gradients = result.local_gradient
 
         fval = self._calc_fval(aggregated_zeta_sq_sums)
-        gval = aggregated_gradients
+        gval = aggregated_gradients[0]
         logging.debug(f"fval={fval} and gval={gval}")
         return SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent(
             aggregated_objective_function_value=fval,
             aggregated_gradient=gval
         )
 
-    def aggregate_local_result(self, local_results: List[LocalResult]) -> SteppedEventBasedNewtonCgOptimizer.Resolved:
-        if isinstance(local_results[0], ObjectivesW):
-            local_results: List[ObjectivesW]
-            return self.aggregate_fval_and_gval(local_results)
-        elif isinstance(local_results[0], ObjectivesS):
-            local_results: List[ObjectivesS]
-            return self.aggregated_hessp(local_results)
+    def aggregate_local_result(self, local_result: LocalResult) -> SteppedEventBasedNewtonCgOptimizer.Resolved:
+        if isinstance(local_result, ObjectivesW):
+            local_result: ObjectivesW
+            return self.aggregate_fval_and_gval(local_result)
+        elif isinstance(local_result, ObjectivesS):
+            local_result: ObjectivesS
+            return self.aggregated_hessp(local_result)

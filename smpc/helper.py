@@ -9,7 +9,7 @@ import numpy as np
 import rsa
 from rsa import PrivateKey
 
-from federated_pure_regression_survival_svm.model import ObjectivesW, DataDescription
+from federated_pure_regression_survival_svm.model import ObjectivesW, DataDescription, ObjectivesS
 
 MAX_RAND_INT: int = 234_234_234_324
 
@@ -49,6 +49,57 @@ class MaskedDataDescription(SMPCMasked):
     def __add__(self, other):
         assert isinstance(other, self.__class__)
         assert self.attributes['n_features'] == other.attributes['n_features']
+        self.inner_representation += other.inner_representation
+        for client_id in self.encrypted_masks:
+            self.encrypted_masks[client_id].append(other.encrypted_masks[client_id][0])
+        return self
+
+    def __repr__(self):
+        return f"{self.encrypted_masks}, {self.inner_representation}"
+
+
+class MaskedObjectivesW(SMPCMasked):
+    def unmasked_obj(self, summed_up_masks):
+        decrypted_inner = self.inner_representation + summed_up_masks
+        return ObjectivesW(local_sum_of_zeta_squared=decrypted_inner[0],
+                           local_gradient=decrypted_inner[1:])
+
+    def mask(self, data: ObjectivesW, pub_keys_of_other_parties: Dict[int, rsa.PublicKey]):
+        self.inner_representation = np.array([data.local_sum_of_zeta_squared, data.local_gradient])
+        for client_id, client_pub_key in pub_keys_of_other_parties.items():
+            mask = SMPCMask(self.inner_representation.shape)
+            print(mask)
+            self.inner_representation = mask.apply(self.inner_representation)
+            self.encrypted_masks[client_id].append(mask.encrypt(client_pub_key))
+        return self
+
+    def __add__(self, other):
+        assert isinstance(other, self.__class__)
+        self.inner_representation += other.inner_representation
+        for client_id in self.encrypted_masks:
+            self.encrypted_masks[client_id].append(other.encrypted_masks[client_id][0])
+        return self
+
+    def __repr__(self):
+        return f"{self.encrypted_masks}, {self.inner_representation}"
+
+
+class MaskedObjectivesS(SMPCMasked):
+    def unmasked_obj(self, summed_up_masks):
+        decrypted_inner = self.inner_representation + summed_up_masks
+        return ObjectivesS(local_hessian=decrypted_inner)
+
+    def mask(self, data: ObjectivesS, pub_keys_of_other_parties: Dict[int, rsa.PublicKey]):
+        self.inner_representation = np.array(data.local_hessian)
+        for client_id, client_pub_key in pub_keys_of_other_parties.items():
+            mask = SMPCMask(self.inner_representation.shape)
+            print(mask)
+            self.inner_representation = mask.apply(self.inner_representation)
+            self.encrypted_masks[client_id].append(mask.encrypt(client_pub_key))
+        return self
+
+    def __add__(self, other):
+        assert isinstance(other, self.__class__)
         self.inner_representation += other.inner_representation
         for client_id in self.encrypted_masks:
             self.encrypted_masks[client_id].append(other.encrypted_masks[client_id][0])

@@ -20,7 +20,7 @@ from sksurv.svm import FastSurvivalSVM
 from federated_pure_regression_survival_svm.model import Coordinator, Client, SurvivalData, SharedConfig, LocalResult, \
     OptFinished
 from federated_pure_regression_survival_svm.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
-from smpc.helper import SMPCClient, MaskedDataDescription, SMPCRequest
+from smpc.helper import SMPCClient, MaskedDataDescription, SMPCRequest, SMPCMasked
 
 
 class Communication(abc.ABC):
@@ -305,12 +305,12 @@ class AppLogic:
 
     def _fulfill_all_requests_local(self, requests: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Request]],
                                     models: Dict[str, Coordinator]):
-        local_results: Dict[str, Optional[LocalResult]] = dict.fromkeys(models.keys())
+        local_results: Dict[str, Optional[SMPCMasked]] = dict.fromkeys(models.keys())
         for model_identifier, request in requests.items():
             if request is None:
                 continue
             model: Client = models[model_identifier]
-            local_results[model_identifier] = model.handle_computation_request(request)
+            local_results[model_identifier] = model.handle_computation_request(request, self.smpc_client.pub_keys_of_other_parties)
         return local_results
 
     def _fulfill_all_requests_global(self, local_results: Dict[str, Optional[List[LocalResult]]],
@@ -508,7 +508,7 @@ class AppLogic:
                 data = self.communicator.wait_for_data_from_all()
                 self.progress = 'starting global calculation...'
 
-                local_results: Dict[str, Optional[List[LocalResult]]] = {k: None for k, v in self.splits.items()}
+                local_results: Dict[str, Optional[List[SMPCMasked]]] = {k: None for k, v in self.splits.items()}
                 for split in self.splits.keys():
                     logging.debug(f'Aggregate {split}')
                     split_data = []
@@ -518,8 +518,52 @@ class AppLogic:
 
                     local_results[split] = split_data
 
+                aggregated: Dict[str, SMPCMasked] = dict.fromkeys(self.splits.keys())
+                masks = dict.fromkeys(self.splits.keys())
+                for split in self.splits.keys():
+                    logging.debug(f'Aggregate {split}')
+                    masked_result: SMPCMasked = local_results[split][0]
+                    logging.debug(type(masked_result))
+                    for i in range(1, len(local_results[split])):
+                        masked_result += local_results[split][i]
+
+                    aggregated[split] = masked_result
+                    masks[split] = masked_result.encrypted_masks
+
+                logging.debug(aggregated)
+                logging.debug(masks)
+
+                # get aggregated masks
+                self.communicator.broadcast(SMPCRequest(masks))
+                # fulfill at coordinator
+                request: SMPCRequest = self.communicator.wait_for_data()
+                summed_up_masks_local = self._fulfil_smpc_sum_up_masks(request)
+                self.communicator.send_to_coordinator(summed_up_masks_local)
+
+                results: List[Dict[str, np.array]] = self.communicator.wait_for_data_from_all()
+                logging.debug(f"Masking request result: {results}")
+                masks_for_split = collections.defaultdict(list)
+                for split in self.splits.keys():
+                    for local_res in results:
+                        masks_for_split[split].append(local_res[split])
+                logging.debug(f"Masks for splits: {masks_for_split}")
+
+                unmasked_results = dict.fromkeys(self.splits.keys())
+                for split in self.splits.keys():
+                    logging.debug(masks_for_split[split])
+                    mask_sum = masks_for_split[split][0]
+                    for i in range(1, len(masks_for_split[split])):
+                        mask_sum += masks_for_split[split][i]
+                    logging.debug(f"Mask sum: {mask_sum}")
+                    logging.debug(aggregated[split])
+                    unmasked = aggregated[split].unmasked_obj(mask_sum)
+
+                    logging.debug(f"Unmasked result at split {split}: {unmasked}")
+                    unmasked_results[split] = unmasked
+
+
                 logging.debug(f"Local results: {local_results}")
-                aggregated: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = self._fulfill_all_requests_global(local_results, self.models)
+                aggregated: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = self._fulfill_all_requests_global(unmasked_results, self.models)
                 logging.debug(f"Aggregated: {aggregated}")
                 self._inform_all(aggregated, self.models)
 
@@ -552,7 +596,7 @@ class AppLogic:
                     state = state_local_optimization_calculation_requests_listener
                     logging.info(f'[CLIENT] Sending summed masks to coordinator')
                 else:
-                    results: Dict[str, Optional[LocalResult]] = self._fulfill_all_requests_local(requests, self.models)
+                    results: Dict[str, Optional[SMPCMasked]] = self._fulfill_all_requests_local(requests, self.models)
 
                     logging.debug(f"Local results:\n{results}")
                     self.communicator.send_to_coordinator(results)
