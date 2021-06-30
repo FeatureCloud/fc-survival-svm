@@ -37,7 +37,7 @@ class MaskedDataDescription(SMPCMasked):
                                sum_of_times=decrypted_inner[1])
 
     def mask(self, data: DataDescription, pub_keys_of_other_parties: Dict[int, rsa.PublicKey]):
-        self.inner_representation = np.array([data.sum_of_times, data.n_samples])
+        self.inner_representation = np.array([data.n_samples, data.sum_of_times])
         for client_id, client_pub_key in pub_keys_of_other_parties.items():
             mask = SMPCMask(self.inner_representation.shape)
             print(mask)
