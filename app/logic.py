@@ -1,5 +1,6 @@
 import _queue
 import abc
+import collections
 import logging
 import os
 import pickle
@@ -19,6 +20,7 @@ from sksurv.svm import FastSurvivalSVM
 from federated_pure_regression_survival_svm.model import Coordinator, Client, SurvivalData, SharedConfig, LocalResult, \
     OptFinished
 from federated_pure_regression_survival_svm.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
+from smpc.helper import SMPCClient, MaskedDataDescription, SMPCRequest
 
 
 class Communication(abc.ABC):
@@ -162,6 +164,7 @@ class AppLogic:
         self.OUTPUT_DIR = "/mnt/output"
 
         self.models: Dict[str, Union[Client, Coordinator]] = {}
+        self.smpc_client: Optional[SMPCClient] = None
 
         self.train_filename = None
         self.test_filename = None
@@ -329,12 +332,21 @@ class AppLogic:
             optimizer: SteppedEventBasedNewtonCgOptimizer = model.newton_optimizer
             optimizer.resolve(aggregated_result)
 
+    def _fulfil_smpc_sum_up_masks(self, request: SMPCRequest):
+        summed_masks = dict.fromkeys(self.splits.keys())
+        for split in self.splits.keys():
+            summed_masks[split] = self.smpc_client.sum_encrypted_masks_up(request.data[split][self.id])
+        return summed_masks
+
     def app_flow(self):
         # This method contains a state machine for the client and coordinator instance
 
         # === States ===
         state_initializing = 1
         state_read_input = 2
+        state_smpc_send_public_key = 2.1
+        state_aggregate_public_keys = 2.2
+        state_smpc_set_pubkeys = 2.3
         state_preprocessing = 3
         state_send_data_attributes = 4
         state_global_aggregation_of_data_attributes = 5
@@ -374,6 +386,35 @@ class AppLogic:
                         self.models[split] = Client()
 
                     self.splits[split] = self.read_survival_data(os.path.join(split, self.train_filename))
+                state = state_smpc_send_public_key
+
+            if state == state_smpc_send_public_key:
+                self.smpc_client = SMPCClient(self.id)
+                self.communicator.send_to_coordinator({'client': self.id, 'pub_key': self.smpc_client.pub_key})
+
+                if self.coordinator:
+                    state = state_aggregate_public_keys
+                else:
+                    state = state_smpc_set_pubkeys
+
+            if state == state_aggregate_public_keys:
+                public_keys = self.communicator.wait_for_data_from_all()
+                logging.debug(public_keys)
+
+                for pubkey_info in public_keys:
+                    logging.debug(pubkey_info)
+                    self.smpc_client.add_party_pub_key(pubkey_info['client'], pubkey_info['pub_key'])
+
+                self.communicator.broadcast(self.smpc_client.pub_keys_of_other_parties)
+
+                state = state_smpc_set_pubkeys
+
+            if state == state_smpc_set_pubkeys:
+                pub_keys = self.communicator.wait_for_data()
+                logging.debug(pub_keys)
+
+                self.smpc_client.add_party_pub_key_dict(pub_keys)
+
                 state = state_preprocessing
 
             if state == state_preprocessing:
@@ -394,7 +435,9 @@ class AppLogic:
                 data_to_send = {}
                 for split in self.splits.keys():
                     logging.info(f'Generate data attributes for split {split}')
-                    data_to_send[split] = self.models[split].generate_data_description()
+                    data_description = self.models[split].generate_data_description()
+                    logging.debug(data_description)
+                    data_to_send[split] = MaskedDataDescription().mask(data_description, self.smpc_client.pub_keys_of_other_parties)
 
                 logging.debug(f"Data attributes:\n{data_to_send}")
                 self.communicator.send_to_coordinator(data_to_send)
@@ -410,11 +453,48 @@ class AppLogic:
                 data = self.communicator.wait_for_data_from_all()
                 self.progress = 'aggregating data attributes...'
 
+                aggregated: Dict[str, MaskedDataDescription] = dict.fromkeys(self.splits.keys())
+                masks = dict.fromkeys(self.splits.keys())
                 for split in self.splits.keys():
                     logging.debug(f'Aggregate {split}')
-                    split_data = []
-                    for client in data:
-                        split_data.append(client[split])
+                    masked_result: MaskedDataDescription = data[0][split]
+                    for i in range(1, len(data)):
+                        masked_result += data[i][split]
+
+                    aggregated[split] = masked_result
+                    masks[split] = masked_result.encrypted_masks
+
+                logging.debug(aggregated)
+                logging.debug(masks)
+
+                # get aggregated masks
+                self.communicator.broadcast(SMPCRequest(masks))
+                # fulfill at coordinator
+                request: SMPCRequest = self.communicator.wait_for_data()
+                summed_up_masks_local = self._fulfil_smpc_sum_up_masks(request)
+                self.communicator.send_to_coordinator(summed_up_masks_local)
+
+                results: List[Dict[str, np.array]] = self.communicator.wait_for_data_from_all()
+                logging.debug(results)
+                masks_for_split = collections.defaultdict(list)
+                for split in self.splits.keys():
+                    for local_res in results:
+                        masks_for_split[split].append(local_res[split])
+                logging.debug(masks_for_split)
+
+                for split in self.splits.keys():
+                    logging.debug("MASK")
+                    logging.debug(masks_for_split[split])
+                    mask_sum = masks_for_split[split][0]
+                    for i in range(1, len(masks_for_split[split])):
+                        mask_sum += masks_for_split[split][i]
+                    logging.debug(mask_sum)
+                    logging.debug(aggregated[split])
+                    logging.debug(aggregated[split].unmasked_obj(mask_sum))
+
+                raise NotImplemented  # TODO
+
+                for split in self.splits.keys():
                     logging.debug(f"Data attributes at split {split}: {split_data}")
                     self.models[split].set_data_attributes(split_data)
                     self.models[split].set_initial_w_and_init_optimizer()
@@ -467,6 +547,14 @@ class AppLogic:
                     logging.debug("Received OptFinished signal")
                     state = state_set_global_model
                     self.opt_finished_signal: OptFinished = requests
+                elif isinstance(requests, SMPCRequest):
+                    results = self._fulfil_smpc_sum_up_masks(requests)
+
+                    logging.debug(f"Local results:\n{results}")
+                    self.communicator.send_to_coordinator(results)
+
+                    state = state_local_optimization_calculation_requests_listener
+                    logging.info(f'[CLIENT] Sending summed masks to coordinator')
                 else:
                     results = self._fulfill_all_requests_local(requests, self.models)
 
