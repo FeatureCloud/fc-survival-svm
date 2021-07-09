@@ -335,7 +335,11 @@ class AppLogic:
     def _fulfil_smpc_sum_up_masks(self, request: SMPCRequest):
         summed_masks = dict.fromkeys(self.splits.keys())
         for split in self.splits.keys():
-            summed_masks[split] = self.smpc_client.sum_encrypted_masks_up(request.data[split][self.id])
+            if request.data[split] is not None:
+                mask = request.data[split][self.id]
+                summed_masks[split] = self.smpc_client.sum_encrypted_masks_up(mask)
+            else:
+                summed_masks[split] = None
         return summed_masks
 
     def app_flow(self):
@@ -518,17 +522,20 @@ class AppLogic:
 
                     local_results[split] = split_data
 
-                aggregated: Dict[str, SMPCMasked] = dict.fromkeys(self.splits.keys())
+                aggregated: Dict[str, Optional[SMPCMasked]] = dict.fromkeys(self.splits.keys())
                 masks = dict.fromkeys(self.splits.keys())
                 for split in self.splits.keys():
                     logging.debug(f'Aggregate {split}')
                     masked_result: SMPCMasked = local_results[split][0]
-                    logging.debug(type(masked_result))
-                    for i in range(1, len(local_results[split])):
-                        masked_result += local_results[split][i]
+                    if masked_result is not None:
+                        for i in range(1, len(local_results[split])):
+                            masked_result += local_results[split][i]
 
-                    aggregated[split] = masked_result
-                    masks[split] = masked_result.encrypted_masks
+                        aggregated[split] = masked_result
+                        masks[split] = masked_result.encrypted_masks
+                    else:
+                        aggregated[split] = None
+                        masks[split] = None
 
                 logging.debug(aggregated)
                 logging.debug(masks)

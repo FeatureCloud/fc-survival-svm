@@ -3,7 +3,7 @@ import logging
 import random
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, Tuple, List, Optional
 
 import numpy as np
 import rsa
@@ -131,7 +131,7 @@ class SMPCMask(object):
 
 @dataclass
 class SMPCRequest(object):
-    data: Dict[str, Dict[int, List[SMPCEncryptedMask]]]
+    data: Dict[str, Dict[int, List[Optional[SMPCEncryptedMask]]]]
 
 
 class SMPCClient(object):
