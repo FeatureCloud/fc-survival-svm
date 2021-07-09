@@ -18,7 +18,7 @@ The One-hot Encoder FeatureCloud App can be used in a workflow prior to this app
 
 Can be combined with the following apps:
 - Pre: Cross Validation, Normalization, Feature Selection, One-hot Encoder
-- Post: Survival Regression Evaluation (#TODO)
+- Post: Survival Regression Evaluation
 
 ## Config
 Use the config file to customize your training. Just upload it together with your training data as `config.yml`

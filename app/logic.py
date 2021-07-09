@@ -1,6 +1,7 @@
 import _queue
 import abc
 import collections
+import hashlib
 import logging
 import os
 import pickle
@@ -186,7 +187,18 @@ class AppLogic:
         self.max_iter = None
 
         self.splits: Dict[str, Tuple[pd.DataFrame, NDArray]] = {}
+        self.train_data_paths: Dict[str, str] = {}
         self.svm: Dict[str, FastSurvivalSVM] = {}
+        self.training_states: Optional[Dict[str, Dict[str, Any]]] = None
+
+    @staticmethod
+    def md5_hexdigest(path):
+        with open(path, "rb") as f:
+            file_hash = hashlib.md5()
+            while chunk := f.read(8192):
+                file_hash.update(chunk)
+
+        return file_hash.hexdigest()
 
     def read_config(self):
         with open(os.path.join(self.INPUT_DIR, "config.yml")) as f:
@@ -303,6 +315,15 @@ class AppLogic:
                     continue
         return requests
 
+    def _get_states(self, requests: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Request]]):
+        states = dict.fromkeys(requests.keys())
+        for split_name, request in requests.items():
+            if request is None:
+                states[split_name] = {"state": "Finished"}
+            else:
+                states[split_name] = {"state": "Training"}
+        return states
+
     def _fulfill_all_requests_local(self, requests: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Request]],
                                     models: Dict[str, Coordinator]):
         local_results: Dict[str, Optional[SMPCMasked]] = dict.fromkeys(models.keys())
@@ -315,7 +336,8 @@ class AppLogic:
 
     def _fulfill_all_requests_global(self, local_results: Dict[str, Optional[List[LocalResult]]],
                                      models: Dict[str, Coordinator]):
-        aggregated_results: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = dict.fromkeys(models.keys())
+        aggregated_results: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = dict.fromkeys(
+            models.keys())
         for model_identifier, local_result in local_results.items():
             if local_result is None:
                 continue
@@ -389,7 +411,11 @@ class AppLogic:
                     else:
                         self.models[split] = Client()
 
-                    self.splits[split] = self.read_survival_data(os.path.join(split, self.train_filename))
+                    train_data_path = os.path.join(split, self.train_filename)
+                    self.splits[split] = self.read_survival_data(train_data_path)
+                    self.train_data_paths[split] = train_data_path
+
+                    self.splits[split] = self.read_survival_data(train_data_path)
                 state = state_smpc_send_public_key
 
             if state == state_smpc_send_public_key:
@@ -593,6 +619,8 @@ class AppLogic:
                 requests = self.communicator.wait_for_data()
                 self.progress = 'processing calculation requests...'
 
+                self.iteration += 1
+
                 if isinstance(requests, OptFinished):
                     logging.debug("Received OptFinished signal")
                     state = state_set_global_model
@@ -606,7 +634,9 @@ class AppLogic:
                     state = state_local_optimization_calculation_requests_listener
                     logging.info(f'[CLIENT] Sending summed masks to coordinator')
                 else:
+                    self.training_states = self._get_states(requests)
                     results: Dict[str, Optional[SMPCMasked]] = self._fulfill_all_requests_local(requests, self.models)
+
 
                     logging.debug(f"Local results:\n{results}")
                     self.communicator.send_to_coordinator(results)
@@ -642,13 +672,53 @@ class AppLogic:
                         continue
 
                     model: Client = self.models[split]
-                    sksurv_obj = model.to_sksurv(opt_result)
+                    sksurv_obj: FastSurvivalSVM = model.to_sksurv(opt_result)
                     self.svm[split] = sksurv_obj
 
-                    path = os.path.join(split.replace("/input", "/output"), self.model_output)
-                    logging.debug(f"Writing model to {path}")
-                    with open(path, "wb") as fh:
+                    # write pickled model
+                    pickle_output_path = os.path.join(split.replace("/input", "/output"), self.model_output)
+                    logging.debug(f"Writing model to {pickle_output_path}")
+                    with open(pickle_output_path, "wb") as fh:
                         pickle.dump(sksurv_obj, fh)
+
+                    # write model parameters as meta file
+                    meta_output_path = os.path.join(split.replace("/input", "/output"), "meta.yml")
+                    logging.debug(f"Writing metadata to {meta_output_path}")
+
+                    # unpack coefficients
+                    beta = {}
+                    features = self.splits[split][0].columns.values
+                    weights = sksurv_obj.coef_.tolist()
+                    for feature_name, feature_weight in zip(features, weights):
+                        beta[feature_name] = feature_weight
+                    bias = None
+                    if self.fit_intercept is not None:
+                        bias = float(sksurv_obj.intercept_)
+
+                    metadata = {
+                        "model": {
+                            "name": "FederatedPureRegressionSurvivalSVM",
+                            "version": "0.0.1",
+                            "training_parameters": {
+                                "alpha": sksurv_obj.alpha,
+                                "rank_ratio": sksurv_obj.rank_ratio,
+                                "fit_intercept": sksurv_obj.fit_intercept,
+                                "max_iter": self.max_iter,
+                            },
+                            "coefficients": {
+                                "weights": beta,
+                                "intercept": bias,
+                            },
+                            "training_data": {
+                                "file": self.train_data_paths[split].replace(self.INPUT_DIR, "."),
+                                "file_md5": self.md5_hexdigest(self.train_data_paths[split]),
+                            },
+                        },
+                    }
+
+                    with open(meta_output_path, "w") as fh:
+                        yaml.dump(metadata, fh)
+
                 state = state_generate_predictions
 
             if state == state_generate_predictions:
