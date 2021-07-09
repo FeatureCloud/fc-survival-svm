@@ -559,14 +559,17 @@ class AppLogic:
                 for split in self.splits.keys():
                     logging.debug(masks_for_split[split])
                     mask_sum = masks_for_split[split][0]
-                    for i in range(1, len(masks_for_split[split])):
-                        mask_sum += masks_for_split[split][i]
-                    logging.debug(f"Mask sum: {mask_sum}")
-                    logging.debug(aggregated[split])
-                    unmasked = aggregated[split].unmasked_obj(mask_sum)
+                    if mask_sum is not None:
+                        for i in range(1, len(masks_for_split[split])):
+                            mask_sum += masks_for_split[split][i]
+                        logging.debug(f"Mask sum: {mask_sum}")
+                        logging.debug(aggregated[split])
+                        unmasked = aggregated[split].unmasked_obj(mask_sum)
 
-                    logging.debug(f"Unmasked result at split {split}: {unmasked}")
-                    unmasked_results[split] = unmasked
+                        logging.debug(f"Unmasked result at split {split}: {unmasked}")
+                        unmasked_results[split] = unmasked
+                    else:
+                        unmasked_results[split] = None
 
 
                 logging.debug(f"Local results: {local_results}")
