@@ -1,5 +1,7 @@
 # Survival Support Vector Regression FeatureCloud App
 
+[![unstable](http://badges.github.io/stability-badges/dist/unstable.svg)](http://github.com/badges/stability-badges)
+
 ## Description
 A Survival SVM FeatureCloud app, allowing a federated training of a Survival SVM using a pure regression objective.
 
