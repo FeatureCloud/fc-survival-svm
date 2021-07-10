@@ -191,6 +191,8 @@ class AppLogic:
         self.svm: Dict[str, FastSurvivalSVM] = {}
         self.training_states: Optional[Dict[str, Dict[str, Any]]] = None
 
+        self.timings: Dict[str, float] = collections.defaultdict(float)
+
     @staticmethod
     def md5_hexdigest(path):
         with open(path, "rb") as f:
@@ -695,6 +697,17 @@ class AppLogic:
                     if self.fit_intercept is not None:
                         bias = float(sksurv_obj.intercept_)
 
+                    # unpack timings
+                    timings = {
+                        "optimizer": {
+                            "calculation_time": opt_result.timings.get('calculation_time'),
+                            "total_time": opt_result.timings.get('total_time'),
+                            "idle_time": opt_result.timings.get('idle_time'),
+                        }
+                    }
+                    for k,v in self.timings:
+                        timings[k] = v
+
                     metadata = {
                         "model": {
                             "name": "SmpcFederatedPureRegressionSurvivalSVM",
@@ -727,6 +740,7 @@ class AppLogic:
                                 "file": self.train_data_paths[split].replace(self.INPUT_DIR, "."),
                                 "file_md5": self.md5_hexdigest(self.train_data_paths[split]),
                             },
+                            "timings": timings,
                         },
                     }
 
