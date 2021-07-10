@@ -712,6 +712,7 @@ class AppLogic:
                         "model": {
                             "name": "SmpcFederatedPureRegressionSurvivalSVM",
                             "version": "0.0.1",
+                            "privacy_technique": "SMPC",
                             "training_parameters": {
                                 "alpha": sksurv_obj.alpha,
                                 "rank_ratio": sksurv_obj.rank_ratio,
