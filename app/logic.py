@@ -37,6 +37,10 @@ class Communication(abc.ABC):
         self.is_coordinator = is_coordinator
         self.num_clients = num_clients
 
+    def clear(self):
+        self.data_outgoing = None
+        self.status_available = False
+
     def handle_incoming(self, data):
         # This method is called when new data arrives
         logging.info("Process incoming data....")
