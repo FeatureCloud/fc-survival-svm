@@ -705,7 +705,7 @@ class AppLogic:
                             "idle_time": opt_result.timings.get('idle_time'),
                         }
                     }
-                    for k,v in self.timings:
+                    for k,v in self.timings.items():
                         timings[k] = v
 
                     metadata = {
