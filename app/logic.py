@@ -705,6 +705,20 @@ class AppLogic:
                                 "fit_intercept": sksurv_obj.fit_intercept,
                                 "max_iter": self.max_iter,
                             },
+                            "optimizer": {
+                                "success": opt_result.success,
+                                "status": opt_result.status,
+                                "message": opt_result.message,
+                                "nit": opt_result.nit,
+                                "nfev": opt_result.nfev,
+                                "njev": opt_result.njev,
+                                "nhev": opt_result.nhev,
+                                "timings": {
+                                    "calculation_time": opt_result.timings.calculation_time,
+                                    "total_time": opt_result.timings.total_time,
+                                    "idle_time": opt_result.timings.idle_time,
+                                },
+                            },
                             "coefficients": {
                                 "weights": beta,
                                 "intercept": bias,
