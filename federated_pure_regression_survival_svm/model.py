@@ -238,7 +238,15 @@ class Client(object):
             local_gradient=self._gradient_func(bias, beta),
         )
 
-    def handle_computation_request(self, request: SteppedEventBasedNewtonCgOptimizer.Request, pub_keys_of_other_parties: Dict[int, rsa.PublicKey]) -> SMPCMasked:
+    def handle_computation_request(self, request: SteppedEventBasedNewtonCgOptimizer.Request) -> LocalResult:
+        if isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestWDependent):
+            request: SteppedEventBasedNewtonCgOptimizer.RequestWDependent
+            return self._get_values_depending_on_w(request)
+        elif isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestHessp):
+            request: SteppedEventBasedNewtonCgOptimizer.RequestHessp
+            return self._hessian_func(request)
+
+    def handle_computation_request_smpc(self, request: SteppedEventBasedNewtonCgOptimizer.Request, pub_keys_of_other_parties: Dict[int, rsa.PublicKey]) -> SMPCMasked:
         if isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestWDependent):
             request: SteppedEventBasedNewtonCgOptimizer.RequestWDependent
             response: ObjectivesW = self._get_values_depending_on_w(request)
@@ -298,6 +306,30 @@ class Coordinator(Client):
         logging.debug(f"Clients have {self.total_n_samples} samples in total")
 
         self.total_time_sum = data_descriptions.sum_of_times
+        logging.debug(f"Clients have a summed up time of {self.total_time_sum}")
+
+    def aggregate_and_set_data_descriptions(self, data_descriptions: List[DataDescription]):
+        # unwrap
+        aggregated_n_features = []
+        aggregated_n_samples = np.zeros(len(data_descriptions))
+        aggregated_sum_of_times = np.zeros(len(data_descriptions))
+        for i, local_data in enumerate(data_descriptions):
+            aggregated_n_features.append(local_data.n_features)
+            aggregated_n_samples[i] = local_data.n_samples
+            aggregated_sum_of_times[i] = local_data.sum_of_times
+
+        # check all clients have reported the same number of features
+        if len(set(aggregated_n_features)) > 1:
+            raise ValueError("Clients reported a differing number of features")
+        self.total_n_features = aggregated_n_features[0]
+        logging.debug(f"Clients agree on having {self.total_n_features} features")
+
+        # get total number of samples
+        self.total_n_samples = np.sum(aggregated_n_samples)
+        logging.debug(f"Clients have {self.total_n_samples} samples in total")
+
+        # get summed up times
+        self.total_time_sum = np.sum(aggregated_sum_of_times)
         logging.debug(f"Clients have a summed up time of {self.total_time_sum}")
 
     @property

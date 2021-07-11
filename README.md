@@ -24,6 +24,8 @@ Can be combined with the following apps:
 Use the config file to customize your training. Just upload it together with your training data as `config.yml`
 ```yml
 fc_survival_svm:
+  privacy:
+    enable_smpc: True  # SMPC enhances privacy in a trade-off for a longer runtime, by only sending masked output to the aggregator.
   input:
     train: "train_encoded.csv"
     test: "test_encoded.csv"
