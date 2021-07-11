@@ -790,12 +790,12 @@ class AppLogic:
                         bias = float(sksurv_obj.intercept_)
 
                     # unpack timings
+                    opt_times = opt_result.timings['py/seq']  # TODO. Why is this a dict? Failed JSON parsing?
                     timings = {
                         "optimizer": {
-                            "timings": opt_result.timings,
-                            "calculation_time": opt_result.timings.get('calculation_time'),
-                            "total_time": opt_result.timings.get('total_time'),
-                            "idle_time": opt_result.timings.get('idle_time'),
+                            "calculation_time": opt_times[0],
+                            "total_time": opt_times[1],
+                            "idle_time": opt_times[2],
                         }
                     }
                     for k,v in self.timings.items():
