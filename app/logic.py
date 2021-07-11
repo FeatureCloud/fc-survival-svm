@@ -289,7 +289,7 @@ class AppLogic:
         self.communicator.init(self.coordinator, len(clients))
         logging.info(f'Received setup: {self.id} {self.coordinator} {self.clients}')
 
-        self.thread = threading.Thread(target=self.app_flow)
+        self.thread = threading.Thread(target=self.guarded_app_flow)
         self.thread.start()
 
     @property
