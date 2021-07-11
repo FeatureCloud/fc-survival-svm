@@ -386,18 +386,18 @@ class AppLogic:
         # === States ===
         state_initializing = 1
         state_read_input = 2
-        state_smpc_send_public_key = 2.1
-        state_aggregate_public_keys = 2.2
-        state_smpc_set_pubkeys = 2.3
-        state_preprocessing = 3
-        state_send_data_attributes = 4
-        state_global_aggregation_of_data_attributes = 5
-        state_global_optimization = 6
-        state_local_optimization_calculation_requests_listener = 7
-        state_send_global_model = 8
-        state_set_global_model = 9
-        state_generate_predictions = 10
-        state_shutdown = 11
+        state_smpc_send_public_key = 3.0
+        state_aggregate_public_keys = 3.1
+        state_smpc_set_pubkeys = 3.2
+        state_preprocessing = 4
+        state_send_data_attributes = 5
+        state_global_aggregation_of_data_attributes = 6
+        state_global_optimization = 7
+        state_local_optimization_calculation_requests_listener = 8
+        state_send_global_model = 9
+        state_set_global_model = 10
+        state_generate_predictions = 11
+        state_shutdown = 12
 
         # Initial state
         state = state_initializing
