@@ -805,7 +805,7 @@ class AppLogic:
 
                     metadata = {
                         "model": {
-                            "name": "SmpcFederatedPureRegressionSurvivalSVM",
+                            "name": "FederatedPureRegressionSurvivalSVM",
                             "version": "v0.0.1-alpha",
                             "privacy_technique": "SMPC" if self.enable_smpc else "None",
                             "training_parameters": {
