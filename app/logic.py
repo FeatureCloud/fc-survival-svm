@@ -387,7 +387,7 @@ class AppLogic:
         state_initializing = 1
         state_read_input = 2
         state_smpc_send_public_key = 3.0
-        state_aggregate_public_keys = 3.1
+        state_smpc_aggregate_public_keys = 3.1
         state_smpc_set_pubkeys = 3.2
         state_preprocessing = 4
         state_send_data_attributes = 5
@@ -448,11 +448,11 @@ class AppLogic:
                 self.communicator.send_to_coordinator({'client': self.id, 'pub_key': self.smpc_client.pub_key})
 
                 if self.coordinator:
-                    state = state_aggregate_public_keys
+                    state = state_smpc_aggregate_public_keys
                 else:
                     state = state_smpc_set_pubkeys
 
-            if state == state_aggregate_public_keys:
+            if state == state_smpc_aggregate_public_keys:
                 public_keys = self.communicator.wait_for_data_from_all()
                 logging.debug(public_keys)
 
