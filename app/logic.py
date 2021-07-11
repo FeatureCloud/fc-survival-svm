@@ -178,6 +178,7 @@ class AppLogic:
         self.test_filename = None
 
         self.model_output = None
+        self.meta_output = None
         self.pred_output = None
         self.test_output = None
         self.train_output = None
@@ -220,6 +221,7 @@ class AppLogic:
 
             self.model_output = config['output']['model']
             self.pred_output = config['output']['pred']
+            self.meta_output = config['output'].get("meta", "meta.yml")  # default value
             self.train_output = config['output'].get("train", self.train_filename)  # default value
             self.test_output = config['output'].get("test", self.test_filename)  # default value
 
@@ -778,7 +780,7 @@ class AppLogic:
                         pickle.dump(sksurv_obj, fh)
 
                     # write model parameters as meta file
-                    meta_output_path = os.path.join(split.replace("/input", "/output"), "meta.yml")
+                    meta_output_path = os.path.join(split.replace("/input", "/output"), self.meta_output)
                     logging.debug(f"Writing metadata to {meta_output_path}")
 
                     # unpack coefficients

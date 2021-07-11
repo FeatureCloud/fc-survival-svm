@@ -34,6 +34,7 @@ fc_survival_svm:
     test: "test_encoded.csv"
   output:
     model: "model.pkl"
+    meta: "meta.yml"  # optional, default: meta.yml; filename for model meta file
     pred: "pred.csv"
     train: "train.csv"  # optional, default: fc_survival_svm.input.train; filename name for a copy of the train input
     test: "test.csv"  # optional, default: fc_survival_svm.input.train; filename name for a copy of the test input
