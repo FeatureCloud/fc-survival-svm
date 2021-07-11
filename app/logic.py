@@ -407,9 +407,13 @@ class AppLogic:
             if state == state_read_input:
                 logging.info('Read input and config')
                 self.progress = 'reading config...'
+                tic = time.perf_counter()
                 self.read_config()
+                toc = time.perf_counter()
+                self.timings['read_config'] = toc - tic
 
                 self.progress = 'reading data...'
+                tic = time.perf_counter()
                 for split in self.splits.keys():
                     logging.info(f'Read {split} data')
                     if self.coordinator:
@@ -422,10 +426,15 @@ class AppLogic:
                     self.train_data_paths[split] = train_data_path
 
                     self.splits[split] = self.read_survival_data(train_data_path)
+                toc = time.perf_counter()
+                self.timings['read_data'] = toc - tic
                 state = state_smpc_send_public_key
 
             if state == state_smpc_send_public_key:
+                tic = time.perf_counter()
                 self.smpc_client = SMPCClient(self.id)
+                toc = time.perf_counter()
+                self.timings['smpc_init'] = toc - tic
                 self.communicator.send_to_coordinator({'client': self.id, 'pub_key': self.smpc_client.pub_key})
 
                 if self.coordinator:
@@ -455,6 +464,7 @@ class AppLogic:
 
             if state == state_preprocessing:
                 self.progress = 'preprocessing...'
+                tic = time.perf_counter()
                 for split in self.splits.keys():
                     logging.info(f'Preprocess {split}')
                     model = self.models[split]
@@ -464,6 +474,8 @@ class AppLogic:
                                      max_iter=self.max_iter))  # TODO: check if nodes agree on config
                     model.set_data(SurvivalData(X, y))
                     model.log_transform_times()  # run log transformation of time values for regression objective
+                toc = time.perf_counter()
+                self.timings['preprocessing'] = toc - tic
                 state = state_send_data_attributes
 
             if state == state_send_data_attributes:
@@ -704,6 +716,7 @@ class AppLogic:
                     # unpack timings
                     timings = {
                         "optimizer": {
+                            "timings": opt_result.timings,
                             "calculation_time": opt_result.timings.get('calculation_time'),
                             "total_time": opt_result.timings.get('total_time'),
                             "idle_time": opt_result.timings.get('idle_time'),
@@ -731,11 +744,6 @@ class AppLogic:
                                 "nfev": opt_result.nfev,
                                 "njev": opt_result.njev,
                                 "nhev": opt_result.nhev,
-                                "timings": {
-                                    "calculation_time": opt_result.timings.calculation_time,
-                                    "total_time": opt_result.timings.total_time,
-                                    "idle_time": opt_result.timings.idle_time,
-                                },
                             },
                             "coefficients": {
                                 "weights": beta,
