@@ -358,7 +358,17 @@ class Coordinator(Client):
         self.newton_optimizer = SteppedEventBasedNewtonCgOptimizer(w)
         return w
 
-    def aggregated_hessp(self, result: ObjectivesS) -> SteppedEventBasedNewtonCgOptimizer.ResolvedHessp:
+    def aggregated_hessp(self, results: List[ObjectivesS]) -> SteppedEventBasedNewtonCgOptimizer.ResolvedHessp:
+        # unwrap
+        aggregated_hessp = results[0].local_hessian
+        for i in range(1, len(results)):
+            aggregated_hessp += results[i].local_hessian
+        logging.debug(f"Aggregated hessian: {aggregated_hessp}")
+
+        hess_p = aggregated_hessp
+        return SteppedEventBasedNewtonCgOptimizer.ResolvedHessp(aggregated_hessp=hess_p)
+
+    def aggregated_hessp_smpc(self, result: ObjectivesS) -> SteppedEventBasedNewtonCgOptimizer.ResolvedHessp:
         # unwrap
         aggregated_hessp = result.local_hessian
         logging.debug(f"Aggregated hessian: {aggregated_hessp}")
@@ -372,7 +382,24 @@ class Coordinator(Client):
         return val
 
     def aggregate_fval_and_gval(self,
-                                result: ObjectivesW) -> SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent:
+                                results: List[ObjectivesW]) -> SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent:
+        # unwrap
+        aggregated_zeta_sq_sums = results[0].local_sum_of_zeta_squared
+        aggregated_gradients = results[0].local_gradient
+        for i in range(1, len(results)):
+            aggregated_zeta_sq_sums += results[i].local_sum_of_zeta_squared
+            aggregated_gradients += results[i].local_gradient
+
+        fval = self._calc_fval(aggregated_zeta_sq_sums)
+        gval = aggregated_gradients
+        logging.debug(f"fval={fval} and gval={gval}")
+        return SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent(
+            aggregated_objective_function_value=fval,
+            aggregated_gradient=gval
+        )
+
+    def aggregate_fval_and_gval_smpc(self,
+                                     result: ObjectivesW) -> SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent:
         # unwrap
         aggregated_zeta_sq_sums = result.local_sum_of_zeta_squared
         aggregated_gradients = result.local_gradient
@@ -385,10 +412,18 @@ class Coordinator(Client):
             aggregated_gradient=gval
         )
 
-    def aggregate_local_result(self, local_result: LocalResult) -> SteppedEventBasedNewtonCgOptimizer.Resolved:
+    def aggregate_local_result(self, local_results: List[LocalResult]) -> SteppedEventBasedNewtonCgOptimizer.Resolved:
+        if isinstance(local_results[0], ObjectivesW):
+            local_results: List[ObjectivesW]
+            return self.aggregate_fval_and_gval(local_results)
+        elif isinstance(local_results[0], ObjectivesS):
+            local_results: List[ObjectivesS]
+            return self.aggregated_hessp(local_results)
+
+    def aggregate_local_result_smpc(self, local_result: LocalResult) -> SteppedEventBasedNewtonCgOptimizer.Resolved:
         if isinstance(local_result, ObjectivesW):
             local_result: ObjectivesW
-            return self.aggregate_fval_and_gval(local_result)
+            return self.aggregate_fval_and_gval_smpc(local_result)
         elif isinstance(local_result, ObjectivesS):
             local_result: ObjectivesS
-            return self.aggregated_hessp(local_result)
+            return self.aggregated_hessp_smpc(local_result)

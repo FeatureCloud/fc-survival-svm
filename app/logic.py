@@ -367,6 +367,17 @@ class AppLogic:
             aggregated_results[model_identifier] = model.aggregate_local_result(local_result)
         return aggregated_results
 
+    def _fulfill_all_requests_global_smpc(self, local_results: Dict[str, Optional[LocalResult]],
+                                     models: Dict[str, Coordinator]):
+        aggregated_results: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = dict.fromkeys(
+            models.keys())
+        for model_identifier, local_result in local_results.items():
+            if local_result is None:
+                continue
+            model: Coordinator = models[model_identifier]
+            aggregated_results[model_identifier] = model.aggregate_local_result_smpc(local_result)
+        return aggregated_results
+
     def _inform_all(self, aggregated_results: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]],
                     models: Dict[str, Coordinator]):
         for model_identifier, aggregated_result in aggregated_results.items():
@@ -650,7 +661,7 @@ class AppLogic:
                             masks_for_split[split].append(local_res[split])
                     logging.debug(f"Masks for splits: {masks_for_split}")
 
-                    unmasked_results = dict.fromkeys(self.splits.keys())
+                    local_results: Dict[str, Optional[List[LocalResult]]] = dict.fromkeys(self.splits.keys())
                     for split in self.splits.keys():
                         logging.debug(masks_for_split[split])
                         mask_sum = masks_for_split[split][0]
@@ -662,9 +673,9 @@ class AppLogic:
                             unmasked = aggregated[split].unmasked_obj(mask_sum)
 
                             logging.debug(f"Unmasked result at split {split}: {unmasked}")
-                            unmasked_results[split] = unmasked
+                            local_results[split] = unmasked
                         else:
-                            unmasked_results[split] = None
+                            local_results[split] = None
                 else:
                     local_results: Dict[str, Optional[List[LocalResult]]] = {k: None for k, v in self.splits.items()}
                     for split in self.splits.keys():
@@ -677,7 +688,10 @@ class AppLogic:
                         local_results[split] = split_data
 
                 logging.debug(f"Local results: {local_results}")
-                aggregated: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = self._fulfill_all_requests_global(unmasked_results, self.models)
+                if self.enable_smpc:
+                    aggregated: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = self._fulfill_all_requests_global_smpc(local_results, self.models)
+                else:
+                    aggregated: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = self._fulfill_all_requests_global(local_results, self.models)
                 logging.debug(f"Aggregated: {aggregated}")
                 self._inform_all(aggregated, self.models)
 
