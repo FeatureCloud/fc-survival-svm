@@ -6,6 +6,7 @@ from typing import Optional, List, Tuple, Dict
 
 import numpy as np
 import pandas as pd
+import rsa
 from nptyping import NDArray, Bool, Float64
 from scipy.optimize import OptimizeResult
 from sklearn.exceptions import ConvergenceWarning
@@ -72,6 +73,9 @@ class ObjectivesW(LocalResult):
 @dataclass
 class ObjectivesS(LocalResult):
     local_hessian: NDArray[Float64]
+
+
+from smpc.helper import MaskedObjectivesW, SMPCMasked, MaskedObjectivesS
 
 
 class Client(object):
@@ -242,6 +246,16 @@ class Client(object):
             request: SteppedEventBasedNewtonCgOptimizer.RequestHessp
             return self._hessian_func(request)
 
+    def handle_computation_request_smpc(self, request: SteppedEventBasedNewtonCgOptimizer.Request, pub_keys_of_other_parties: Dict[int, rsa.PublicKey]) -> SMPCMasked:
+        if isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestWDependent):
+            request: SteppedEventBasedNewtonCgOptimizer.RequestWDependent
+            response: ObjectivesW = self._get_values_depending_on_w(request)
+            return MaskedObjectivesW().mask(response, pub_keys_of_other_parties)
+        elif isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestHessp):
+            request: SteppedEventBasedNewtonCgOptimizer.RequestHessp
+            response: ObjectivesS = self._hessian_func(request)
+            return MaskedObjectivesS().mask(response, pub_keys_of_other_parties)
+
     def to_sksurv(self, optimize_result: OptimizeResult) -> FastSurvivalSVM:
         """
         Export model to a FastSurvivalSVM in the fitted state.
@@ -284,7 +298,17 @@ class Coordinator(Client):
 
         self.newton_optimizer = None
 
-    def set_data_attributes(self, data_descriptions: List[DataDescription]):
+    def set_data_description(self, data_descriptions: DataDescription):
+        self.total_n_features = data_descriptions.n_features
+        logging.debug(f"Clients have {self.total_n_features} features")
+
+        self.total_n_samples = data_descriptions.n_samples
+        logging.debug(f"Clients have {self.total_n_samples} samples in total")
+
+        self.total_time_sum = data_descriptions.sum_of_times
+        logging.debug(f"Clients have a summed up time of {self.total_time_sum}")
+
+    def aggregate_and_set_data_descriptions(self, data_descriptions: List[DataDescription]):
         # unwrap
         aggregated_n_features = []
         aggregated_n_samples = np.zeros(len(data_descriptions))
@@ -344,6 +368,14 @@ class Coordinator(Client):
         hess_p = aggregated_hessp
         return SteppedEventBasedNewtonCgOptimizer.ResolvedHessp(aggregated_hessp=hess_p)
 
+    def aggregated_hessp_smpc(self, result: ObjectivesS) -> SteppedEventBasedNewtonCgOptimizer.ResolvedHessp:
+        # unwrap
+        aggregated_hessp = result.local_hessian
+        logging.debug(f"Aggregated hessian: {aggregated_hessp}")
+
+        hess_p = aggregated_hessp
+        return SteppedEventBasedNewtonCgOptimizer.ResolvedHessp(aggregated_hessp=hess_p)
+
     def _calc_fval(self, total_zeta_sq_sum):
         bias, beta = self._split_coefficients(self.w)
         val = 0.5 * np.dot(beta.T, beta) + (self.alpha / 2) * total_zeta_sq_sum
@@ -366,6 +398,20 @@ class Coordinator(Client):
             aggregated_gradient=gval
         )
 
+    def aggregate_fval_and_gval_smpc(self,
+                                     result: ObjectivesW) -> SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent:
+        # unwrap
+        aggregated_zeta_sq_sums = result.local_sum_of_zeta_squared
+        aggregated_gradients = result.local_gradient
+
+        fval = self._calc_fval(aggregated_zeta_sq_sums)
+        gval = aggregated_gradients[0]  # TODO: Why is this even wrapped in a list?
+        logging.debug(f"fval={fval} and gval={gval}")
+        return SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent(
+            aggregated_objective_function_value=fval,
+            aggregated_gradient=gval
+        )
+
     def aggregate_local_result(self, local_results: List[LocalResult]) -> SteppedEventBasedNewtonCgOptimizer.Resolved:
         if isinstance(local_results[0], ObjectivesW):
             local_results: List[ObjectivesW]
@@ -373,3 +419,11 @@ class Coordinator(Client):
         elif isinstance(local_results[0], ObjectivesS):
             local_results: List[ObjectivesS]
             return self.aggregated_hessp(local_results)
+
+    def aggregate_local_result_smpc(self, local_result: LocalResult) -> SteppedEventBasedNewtonCgOptimizer.Resolved:
+        if isinstance(local_result, ObjectivesW):
+            local_result: ObjectivesW
+            return self.aggregate_fval_and_gval_smpc(local_result)
+        elif isinstance(local_result, ObjectivesS):
+            local_result: ObjectivesS
+            return self.aggregated_hessp_smpc(local_result)
