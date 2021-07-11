@@ -11,6 +11,7 @@ import time
 from typing import Any, Dict, Union, List, Optional, Tuple
 
 import jsonpickle
+import jsonpickle.ext.numpy as jsonpickle_numpy
 import numpy as np
 import pandas as pd
 import yaml
@@ -22,6 +23,9 @@ from federated_pure_regression_survival_svm.model import Coordinator, Client, Su
     OptFinished
 from federated_pure_regression_survival_svm.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
 from smpc.helper import SMPCClient, MaskedDataDescription, SMPCRequest, SMPCMasked
+
+
+jsonpickle_numpy.register_handlers()
 
 
 class Communication(abc.ABC):
@@ -133,7 +137,9 @@ class JsonEncodedCommunication(Communication):
         while True:
             if len(self.data_incoming) == 1:
                 logging.debug("Received response")
-                decoded_data = self._decode(self.data_incoming[0])
+                data = self.data_incoming[0]
+                logging.debug(data)
+                decoded_data = self._decode(data)
                 self.data_incoming = []
                 return decoded_data
             elif len(self.data_incoming) > 1:
