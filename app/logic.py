@@ -370,6 +370,16 @@ class AppLogic:
                 summed_masks[split] = None
         return summed_masks
 
+    def guarded_app_flow(self):
+        """Adds error handling to app flow."""
+        try:
+            self.app_flow()
+        except Exception as e:  # gonna catch 'em all
+            self.status_finished = True
+            self.communicator.clear()
+            self.communicator.broadcast(Exception(f'app_flow of client {self.id} failed'))
+            raise e
+
     def app_flow(self):
         # This method contains a state machine for the client and coordinator instance
 
