@@ -358,6 +358,13 @@ class Coordinator(Client):
         self.newton_optimizer = SteppedEventBasedNewtonCgOptimizer(w)
         return w
 
+    def _update_w(self, new_w):
+        self.w = new_w
+
+    def _get_values_depending_on_w(self, req: SteppedEventBasedNewtonCgOptimizer.RequestWDependent) -> ObjectivesW:
+        self._update_w(req.xk)
+        return super()._get_values_depending_on_w(req)
+
     def aggregated_hessp(self, results: List[ObjectivesS]) -> SteppedEventBasedNewtonCgOptimizer.ResolvedHessp:
         # unwrap
         aggregated_hessp = results[0].local_hessian
