@@ -205,6 +205,7 @@ class AppLogic:
         self.train_data_paths: Dict[str, str] = {}
         self.svm: Dict[str, FastSurvivalSVM] = {}
         self.training_states: Optional[Dict[str, Dict[str, Any]]] = None
+        self.last_requests = None
 
         self.timings: Dict[str, float] = collections.defaultdict(float)
 
@@ -737,6 +738,7 @@ class AppLogic:
                     logging.info(f'[CLIENT] Sending summed masks to coordinator')
                 else:
                     self.training_states = self._get_states(requests)
+                    self.last_requests = requests
                     if self.smpc_client:
                         results: Dict[str, Optional[SMPCMasked]] = self._fulfill_all_requests_local_smpc(requests, self.models)
                     else:
@@ -814,7 +816,7 @@ class AppLogic:
                     metadata = {
                         "model": {
                             "name": "FederatedPureRegressionSurvivalSVM",
-                            "version": "v0.0.1-alpha",
+                            "version": "v0.1.1-alpha",
                             "privacy_technique": "SMPC" if self.enable_smpc else "None",
                             "training_parameters": {
                                 "alpha": sksurv_obj.alpha,

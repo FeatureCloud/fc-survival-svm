@@ -67,12 +67,12 @@ class LocalResult:
 @dataclass
 class ObjectivesW(LocalResult):
     local_sum_of_zeta_squared: float
-    local_gradient: NDArray[Float64]
+    local_gradient_update: NDArray[Float64]
 
 
 @dataclass
 class ObjectivesS(LocalResult):
-    local_hessian: NDArray[Float64]
+    local_hessp_update: NDArray[Float64]
 
 
 from smpc.helper import MaskedObjectivesW, SMPCMasked, MaskedObjectivesS
@@ -87,7 +87,8 @@ class Client(object):
         self.max_iter = None
         self._regr_penalty: Optional[float] = None
 
-        self._zeta_sq_sum: Optional[float] = None
+        self.last_request: Optional[SteppedEventBasedNewtonCgOptimizer.Request] = None
+
         self._regr_mask: Optional[NDArray[Bool]] = None
         self._y_compressed: Optional[NDArray[Float64]] = None
 
@@ -192,50 +193,50 @@ class Client(object):
         self._regr_mask = (pred_time > 0) | self.data.survival.event_indicator
         self._y_compressed = self.data.survival.time_to_event.compress(self._regr_mask, axis=0)
 
-    def _gradient_func(self, bias: float, beta: NDArray[Float64]) -> NDArray[Float64]:
-
-        grad = beta.copy()
-
+    def _gradient_update(self, bias: float, beta: NDArray[Float64]) -> NDArray[Float64]:
         xc = self.data.features.compress(self._regr_mask, axis=0)
         xcs = np.dot(xc, beta)
-        grad += self._regr_penalty * (np.dot(xc.T, xcs) + xc.sum(axis=0) * bias - np.dot(xc.T, self._y_compressed))
+        grad_update = self._regr_penalty * (np.dot(xc.T, xcs) + xc.sum(axis=0) * bias - np.dot(xc.T, self._y_compressed))
 
         # intercept
         if self.fit_intercept:
             grad_intercept = self._regr_penalty * (xcs.sum() + xc.shape[0] * bias - self._y_compressed.sum())
-            grad = np.r_[grad_intercept, grad]
+            grad_update = np.r_[grad_intercept, grad_update]
 
-        logging.debug(f"local gradient: beta={beta}, bias={bias}, result={grad}")
-        return grad
+        logging.debug(f"local gradient: beta={beta}, bias={bias}, result={grad_update}")
+        return grad_update
 
-    def _hessian_func(self, req: SteppedEventBasedNewtonCgOptimizer.RequestHessp) -> ObjectivesS:
+    def _hessp_update(self, req: SteppedEventBasedNewtonCgOptimizer.RequestHessp) -> ObjectivesS:
+        self.last_request = req
+
         s_bias, s_feat = self._split_coefficients(req.psupi)
 
-        hessp = s_feat.copy()
         xc = self.data.features.compress(self._regr_mask, axis=0)
-        hessp += self._regr_penalty * np.dot(xc.T, np.dot(xc, s_feat))
+        hessp_update = self._regr_penalty * np.dot(xc.T, np.dot(xc, s_feat))
 
         # intercept
         if self.fit_intercept:
             xsum = xc.sum(axis=0)
-            hessp += self._regr_penalty * xsum * s_bias
+            hessp_update += self._regr_penalty * xsum * s_bias
             hessp_intercept = (self._regr_penalty * xc.shape[0] * s_bias
                                + self._regr_penalty * np.dot(xsum, s_feat))
-            hessp = np.r_[hessp_intercept, hessp]
+            hessp_update = np.r_[hessp_intercept, hessp_update]
 
-        logging.debug(f"local hessian: s={req.psupi}, result={hessp}")
+        logging.debug(f"local hessian: s={req.psupi}, result={hessp_update}")
         return ObjectivesS(
-            local_hessian=hessp
+            local_hessp_update=hessp_update
         )
 
     def _get_values_depending_on_w(self, req: SteppedEventBasedNewtonCgOptimizer.RequestWDependent) -> ObjectivesW:
+        self.last_request = req
+
         bias, beta = self._split_coefficients(req.xk)
 
         self._update_constraints(bias, beta)
 
         return ObjectivesW(
             local_sum_of_zeta_squared=self._calc_zeta_squared_sum(bias, beta),
-            local_gradient=self._gradient_func(bias, beta),
+            local_gradient_update=self._gradient_update(bias, beta),
         )
 
     def handle_computation_request(self, request: SteppedEventBasedNewtonCgOptimizer.Request) -> LocalResult:
@@ -244,7 +245,7 @@ class Client(object):
             return self._get_values_depending_on_w(request)
         elif isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestHessp):
             request: SteppedEventBasedNewtonCgOptimizer.RequestHessp
-            return self._hessian_func(request)
+            return self._hessp_update(request)
 
     def handle_computation_request_smpc(self, request: SteppedEventBasedNewtonCgOptimizer.Request, pub_keys_of_other_parties: Dict[int, rsa.PublicKey]) -> SMPCMasked:
         if isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestWDependent):
@@ -253,7 +254,7 @@ class Client(object):
             return MaskedObjectivesW().mask(response, pub_keys_of_other_parties)
         elif isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestHessp):
             request: SteppedEventBasedNewtonCgOptimizer.RequestHessp
-            response: ObjectivesS = self._hessian_func(request)
+            response: ObjectivesS = self._hessp_update(request)
             return MaskedObjectivesS().mask(response, pub_keys_of_other_parties)
 
     def to_sksurv(self, optimize_result: OptimizeResult) -> FastSurvivalSVM:
@@ -354,26 +355,38 @@ class Coordinator(Client):
             n -= 1
 
         logging.debug(f"Initial w: {w}")
-        self.w = w
+        self._update_w(w)
         self.newton_optimizer = SteppedEventBasedNewtonCgOptimizer(w)
         return w
 
+    def _update_w(self, new_w):
+        self.w = new_w.copy()
+
+    def _get_values_depending_on_w(self, req: SteppedEventBasedNewtonCgOptimizer.RequestWDependent) -> ObjectivesW:
+        self._update_w(req.xk)
+        return super()._get_values_depending_on_w(req)
+
+    def _apply_hessp_update(self, aggregated_hessp_update):
+        self.last_request: SteppedEventBasedNewtonCgOptimizer.RequestHessp
+        s_bias, s_feat = self._split_coefficients(self.last_request.psupi)
+        return np.r_[np.zeros(1), s_feat] + aggregated_hessp_update
+
     def aggregated_hessp(self, results: List[ObjectivesS]) -> SteppedEventBasedNewtonCgOptimizer.ResolvedHessp:
         # unwrap
-        aggregated_hessp = results[0].local_hessian
+        aggregated_hessp_update = results[0].local_hessp_update
         for i in range(1, len(results)):
-            aggregated_hessp += results[i].local_hessian
-        logging.debug(f"Aggregated hessian: {aggregated_hessp}")
+            aggregated_hessp_update += results[i].local_hessp_update
+        logging.debug(f"Aggregated hessp update: {aggregated_hessp_update}")
 
-        hess_p = aggregated_hessp
+        hess_p = self._apply_hessp_update(aggregated_hessp_update)
         return SteppedEventBasedNewtonCgOptimizer.ResolvedHessp(aggregated_hessp=hess_p)
 
     def aggregated_hessp_smpc(self, result: ObjectivesS) -> SteppedEventBasedNewtonCgOptimizer.ResolvedHessp:
         # unwrap
-        aggregated_hessp = result.local_hessian
-        logging.debug(f"Aggregated hessian: {aggregated_hessp}")
+        aggregated_hessp_update = result.local_hessp_update
+        logging.debug(f"Aggregated hessp update: {aggregated_hessp_update}")
 
-        hess_p = aggregated_hessp
+        hess_p = self._apply_hessp_update(aggregated_hessp_update)
         return SteppedEventBasedNewtonCgOptimizer.ResolvedHessp(aggregated_hessp=hess_p)
 
     def _calc_fval(self, total_zeta_sq_sum):
@@ -381,17 +394,22 @@ class Coordinator(Client):
         val = 0.5 * np.dot(beta.T, beta) + (self.alpha / 2) * total_zeta_sq_sum
         return val
 
+    def _calc_gval(self, aggregated_gradient_update):
+        bias, beta = self._split_coefficients(self.w)
+        return np.r_[np.zeros(1), beta] + aggregated_gradient_update
+
     def aggregate_fval_and_gval(self,
                                 results: List[ObjectivesW]) -> SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent:
         # unwrap
         aggregated_zeta_sq_sums = results[0].local_sum_of_zeta_squared
-        aggregated_gradients = results[0].local_gradient
+        aggregated_gradient_update = results[0].local_gradient_update
         for i in range(1, len(results)):
             aggregated_zeta_sq_sums += results[i].local_sum_of_zeta_squared
-            aggregated_gradients += results[i].local_gradient
+            aggregated_gradient_update += results[i].local_gradient_update
 
         fval = self._calc_fval(aggregated_zeta_sq_sums)
-        gval = aggregated_gradients
+        gval = self._calc_gval(aggregated_gradient_update)
+
         logging.debug(f"fval={fval} and gval={gval}")
         return SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent(
             aggregated_objective_function_value=fval,
@@ -402,7 +420,7 @@ class Coordinator(Client):
                                      result: ObjectivesW) -> SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent:
         # unwrap
         aggregated_zeta_sq_sums = result.local_sum_of_zeta_squared
-        aggregated_gradients = result.local_gradient
+        aggregated_gradients = result.local_gradient_update
 
         fval = self._calc_fval(aggregated_zeta_sq_sums)
         gval = aggregated_gradients[0]  # TODO: Why is this even wrapped in a list?
