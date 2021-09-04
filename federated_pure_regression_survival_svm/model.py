@@ -92,9 +92,18 @@ class Client(object):
         self._regr_mask: Optional[NDArray[Bool]] = None
         self._y_compressed: Optional[NDArray[Float64]] = None
 
+        # helpers for zeta function evaluation that only need to be calculated once
+        self._zeros = None
+        self._censored = None
+
     def set_data(self, data: SurvivalData):
         self.data = data
         self._check_times()
+
+        # calculate these once for zeta function evaluation
+        number_of_samples = self.data.features.shape[0]
+        self._zeros = np.zeros(number_of_samples)
+        self._censored = (self.data.survival.event_indicator == False)
 
     def _put_data(self, X, y):
         self.set_data(SurvivalData(X, y))
@@ -164,26 +173,12 @@ class Client(object):
             wf = w
         return bias, wf
 
-    @staticmethod
-    def _zeta_function(x: NDArray, time: Float64, event: Bool, bias: float, beta: NDArray[Float64]):
-        weighted = time - np.dot(beta.T, x) - bias
-
-        # where data is censored use the maximum between the weighted results and 0
-        if not event:
-            return max(0, weighted)
-
-        return weighted
-
     def _calc_zeta_squared_sum(self, bias: float, beta: NDArray[Float64]):
-        number_of_samples = self.data.features.shape[0]
+        dot_product = np.sum(np.multiply(beta.T, self.data.features), axis=1)  # equal to dot product of beta.T with each feature row
+        weighted = self.data.survival.time_to_event - dot_product - bias
+        np.maximum(weighted, self._zeros, out=weighted, where=self._censored)  # replaces values of cencored entries inplace with 0 if weighted is below 0
 
-        inner_result = np.zeros(number_of_samples)
-
-        for i in range(number_of_samples):
-            inner_result[i] = self._zeta_function(self.data.features[i], self.data.survival.time_to_event[i],
-                                                  self.data.survival.event_indicator[i], bias, beta) ** 2
-
-        zeta_sq_sum = np.sum(inner_result)
+        zeta_sq_sum = np.sum(np.square(weighted))
         logging.debug(f"local zeta_sq_sum: beta={beta}, bias={bias}, result={zeta_sq_sum}")
         return zeta_sq_sum
 
