@@ -91,9 +91,18 @@ class Client(object):
         self._regr_mask: Optional[NDArray[Bool]] = None
         self._y_compressed: Optional[NDArray[Float64]] = None
 
+        # helpers for zeta function evaluation that only need to be calculated once
+        self._zeros = None
+        self._censored = None
+
     def set_data(self, data: SurvivalData):
         self.data = data
         self._check_times()
+
+        # calculate these once for zeta function evaluation
+        number_of_samples = self.data.features.shape[0]
+        self._zeros = np.zeros(number_of_samples)
+        self._censored = (self.data.survival.event_indicator == False)
 
     def _put_data(self, X, y):
         self.set_data(SurvivalData(X, y))
@@ -164,11 +173,6 @@ class Client(object):
         return bias, wf
 
     def _calc_zeta_squared_sum(self, bias: float, beta: NDArray[Float64]):
-        if not self._zeros or not self._censored:  # calculate these once
-            number_of_samples = self.data.features.shape[0]
-            self._zeros = np.zeros(number_of_samples)
-            self._censored = (self.data.survival.event_indicator == False)
-
         dot_product = np.sum(np.multiply(beta.T, self.data.features), axis=1)  # equal to dot product of beta.T with each feature row
         weighted = self.data.survival.time_to_event - dot_product - bias
         np.maximum(weighted, self._zeros, out=weighted, where=self._censored)  # replaces values of cencored entries inplace with 0 if weighted is below 0
