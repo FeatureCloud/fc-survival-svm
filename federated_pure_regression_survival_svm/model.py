@@ -180,9 +180,9 @@ class Client(object):
 
         for i in range(number_of_samples):
             inner_result[i] = self._zeta_function(self.data.features[i], self.data.survival.time_to_event[i],
-                                                  self.data.survival.event_indicator[i], bias, beta) ** 2
+                                                  self.data.survival.event_indicator[i], bias, beta)
 
-        zeta_sq_sum = np.sum(inner_result)
+        zeta_sq_sum = np.sum(np.square(inner_result))
         logging.debug(f"local zeta_sq_sum: beta={beta}, bias={bias}, result={zeta_sq_sum}")
         return zeta_sq_sum
 
