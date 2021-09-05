@@ -65,7 +65,7 @@ class MaskedObjectivesW(SMPCMasked):
                            local_gradient_update=decrypted_inner[1:])
 
     def mask(self, data: ObjectivesW, pub_keys_of_other_parties: Dict[int, rsa.PublicKey]):
-        self.inner_representation = np.array([data.local_sum_of_zeta_squared, data.local_gradient_update])
+        self.inner_representation = np.hstack([data.local_sum_of_zeta_squared, data.local_gradient_update])
         for client_id, client_pub_key in pub_keys_of_other_parties.items():
             mask = SMPCMask(self.inner_representation.shape)
             print(mask)
@@ -90,7 +90,7 @@ class MaskedObjectivesS(SMPCMasked):
         return ObjectivesS(local_hessp_update=decrypted_inner)
 
     def mask(self, data: ObjectivesS, pub_keys_of_other_parties: Dict[int, rsa.PublicKey]):
-        self.inner_representation = np.array(data.local_hessp_update)
+        self.inner_representation = data.local_hessp_update
         for client_id, client_pub_key in pub_keys_of_other_parties.items():
             mask = SMPCMask(self.inner_representation.shape)
             print(mask)

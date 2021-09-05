@@ -196,7 +196,7 @@ class Client(object):
         # intercept
         if self.fit_intercept:
             grad_intercept = self._regr_penalty * (xcs.sum() + xc.shape[0] * bias - self._y_compressed.sum())
-            grad_update = np.r_[grad_intercept, grad_update]
+            grad_update = np.hstack([grad_intercept, grad_update])
 
         logging.debug(f"local gradient: beta={beta}, bias={bias}, result={grad_update}")
         return grad_update
@@ -215,7 +215,7 @@ class Client(object):
             hessp_update += self._regr_penalty * xsum * s_bias
             hessp_intercept = (self._regr_penalty * xc.shape[0] * s_bias
                                + self._regr_penalty * np.dot(xsum, s_feat))
-            hessp_update = np.r_[hessp_intercept, hessp_update]
+            hessp_update = np.hstack([hessp_intercept, hessp_update])
 
         logging.debug(f"local hessian: s={req.psupi}, result={hessp_update}")
         return ObjectivesS(
@@ -364,7 +364,7 @@ class Coordinator(Client):
     def _apply_hessp_update(self, aggregated_hessp_update):
         self.last_request: SteppedEventBasedNewtonCgOptimizer.RequestHessp
         s_bias, s_feat = self._split_coefficients(self.last_request.psupi)
-        return np.r_[np.zeros(1), s_feat] + aggregated_hessp_update
+        return np.hstack([0, s_feat]) + aggregated_hessp_update
 
     def aggregated_hessp(self, results: List[ObjectivesS]) -> SteppedEventBasedNewtonCgOptimizer.ResolvedHessp:
         # unwrap
@@ -391,7 +391,7 @@ class Coordinator(Client):
 
     def _calc_gval(self, aggregated_gradient_update):
         bias, beta = self._split_coefficients(self.w)
-        return np.r_[np.zeros(1), beta] + aggregated_gradient_update
+        return np.hstack([0, beta]) + aggregated_gradient_update
 
     def aggregate_fval_and_gval(self,
                                 results: List[ObjectivesW]) -> SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent:
