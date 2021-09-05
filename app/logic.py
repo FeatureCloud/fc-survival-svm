@@ -828,6 +828,7 @@ class AppLogic:
                                 "success": opt_result.success,
                                 "status": opt_result.status,
                                 "message": opt_result.message,
+                                "fun": opt_result.fun,
                                 "nit": opt_result.nit,
                                 "nfev": opt_result.nfev,
                                 "njev": opt_result.njev,
