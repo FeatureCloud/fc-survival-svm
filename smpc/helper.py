@@ -62,7 +62,7 @@ class MaskedObjectivesW(SMPCMasked):
     def unmasked_obj(self, summed_up_masks):
         decrypted_inner = self.inner_representation + summed_up_masks
         return ObjectivesW(local_sum_of_zeta_squared=decrypted_inner[0],
-                           local_gradient=decrypted_inner[1:])
+                           local_gradient_update=decrypted_inner[1:])
 
     def mask(self, data: ObjectivesW, pub_keys_of_other_parties: Dict[int, rsa.PublicKey]):
         self.inner_representation = np.array([data.local_sum_of_zeta_squared, data.local_gradient_update])
@@ -87,7 +87,7 @@ class MaskedObjectivesW(SMPCMasked):
 class MaskedObjectivesS(SMPCMasked):
     def unmasked_obj(self, summed_up_masks):
         decrypted_inner = self.inner_representation + summed_up_masks
-        return ObjectivesS(local_hessian=decrypted_inner)
+        return ObjectivesS(local_hessp_update=decrypted_inner)
 
     def mask(self, data: ObjectivesS, pub_keys_of_other_parties: Dict[int, rsa.PublicKey]):
         self.inner_representation = np.array(data.local_hessp_update)
