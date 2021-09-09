@@ -67,7 +67,7 @@ TEMPLATE = r"""<!doctype html>
 
 @web_server.route('/')
 def index():
-    print(f'[WEB] GET /', flush=True)
+    logging.debug(f'[WEB] GET /')
     # return f'Progress: {logic.progress}\nIteration:{logic.iteration}\nStates: {logic.training_states}'
     template = Template(TEMPLATE)
     html = template.render(progress=logic.progress, iteration=logic.iteration, states=logic.training_states)
