@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import logging
 
 from bottle import Bottle
 
@@ -9,7 +10,7 @@ server = Bottle()
 
 
 if __name__ == '__main__':
-    print('Starting app', flush=True)
+    logging.info('Starting app')
     server.mount('/api', api_server)
     server.mount('/web', web_server)
     server.run(host='localhost', port=5000)
