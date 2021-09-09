@@ -40,7 +40,7 @@ class MaskedDataDescription(SMPCMasked):
         self.inner_representation = np.array([data.n_samples, data.sum_of_times])
         for client_id, client_pub_key in pub_keys_of_other_parties.items():
             mask = SMPCMask(self.inner_representation.shape)
-            print(mask)
+            logging.debug(mask)
             self.inner_representation = mask.apply(self.inner_representation)
             self.encrypted_masks[client_id].append(mask.encrypt(client_pub_key))
         self.attributes['n_features'] = data.n_features
@@ -68,7 +68,7 @@ class MaskedObjectivesW(SMPCMasked):
         self.inner_representation = np.hstack([data.local_sum_of_zeta_squared, data.local_gradient_update])
         for client_id, client_pub_key in pub_keys_of_other_parties.items():
             mask = SMPCMask(self.inner_representation.shape)
-            print(mask)
+            logging.debug(mask)
             self.inner_representation = mask.apply(self.inner_representation)
             self.encrypted_masks[client_id].append(mask.encrypt(client_pub_key))
         return self
@@ -94,7 +94,7 @@ class MaskedObjectivesS(SMPCMasked):
         for client_id, client_pub_key in pub_keys_of_other_parties.items():
             mask = SMPCMask(self.inner_representation.shape)
             mask.mask = mask.mask * 0.00001
-            print(mask)
+            logging.debug(mask)
             self.inner_representation = mask.apply(self.inner_representation)
             self.encrypted_masks[client_id].append(mask.encrypt(client_pub_key))
         return self
