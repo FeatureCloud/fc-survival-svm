@@ -418,7 +418,7 @@ class Coordinator(Client):
         aggregated_gradients = result.local_gradient_update
 
         fval = self._calc_fval(aggregated_zeta_sq_sums)
-        gval = aggregated_gradients[0]  # TODO: Why is this even wrapped in a list?
+        gval = aggregated_gradients
         logging.debug(f"fval={fval} and gval={gval}")
         return SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent(
             aggregated_objective_function_value=fval,
