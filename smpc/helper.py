@@ -93,6 +93,7 @@ class MaskedObjectivesS(SMPCMasked):
         self.inner_representation = np.array(data.local_hessp_update)
         for client_id, client_pub_key in pub_keys_of_other_parties.items():
             mask = SMPCMask(self.inner_representation.shape)
+            mask.mask = mask.mask * 0.00001
             print(mask)
             self.inner_representation = mask.apply(self.inner_representation)
             self.encrypted_masks[client_id].append(mask.encrypt(client_pub_key))
@@ -114,7 +115,7 @@ class SMPCEncryptedMask(object):
         self.encrypted_mask = encrypted_mask
 
     def decrypt(self, private_key: PrivateKey):
-        return np.frombuffer(rsa.decrypt(self.encrypted_mask, private_key), dtype=np.int)
+        return np.frombuffer(rsa.decrypt(self.encrypted_mask, private_key), dtype=np.float)
 
 
 class SMPCMask(object):
@@ -125,7 +126,7 @@ class SMPCMask(object):
         return data - self.mask
 
     def encrypt(self, public_key: rsa.PublicKey) -> SMPCEncryptedMask:
-        mask = self.mask.astype(np.int).tobytes()
+        mask = self.mask.astype(np.float).tobytes()
         return SMPCEncryptedMask(rsa.encrypt(mask, public_key))
 
 
