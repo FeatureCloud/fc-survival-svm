@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker build . --tag registry.featurecloud.eu:5000/fc_survival_svm
+docker build . --tag featurecloud.ai/survival_svm_linear_kernel_regression_objective

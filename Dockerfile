@@ -1,7 +1,8 @@
-FROM continuumio/miniconda3:4.10.3-alpine
+FROM continuumio/miniconda3:4.10.3p0
 
 # Install your apt-get packages always like this to avoid cache problems
-RUN apk add supervisor nginx gcc
+RUN apt-get update && apt-get install -y \
+    supervisor nginx gcc
 RUN pip3 install --upgrade pip
 
 COPY server_config/supervisord.conf /supervisord.conf
