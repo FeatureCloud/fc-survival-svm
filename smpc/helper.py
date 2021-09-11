@@ -3,7 +3,7 @@ import logging
 import random
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, Any, Tuple, List, Optional
+from typing import Dict, Any, Tuple, List, Optional, Type
 
 import numpy as np
 import rsa
@@ -12,6 +12,7 @@ from rsa import PrivateKey
 from federated_pure_regression_survival_svm.model import ObjectivesW, DataDescription, ObjectivesS
 
 MAX_RAND_INT: int = 234_234_234_324
+D_TYPE: Type = np.float
 
 
 class SMPCMasked(abc.ABC):
@@ -114,7 +115,7 @@ class SMPCEncryptedMask(object):
         self.encrypted_mask = encrypted_mask
 
     def decrypt(self, private_key: PrivateKey):
-        return np.frombuffer(rsa.decrypt(self.encrypted_mask, private_key), dtype=np.int)
+        return np.frombuffer(rsa.decrypt(self.encrypted_mask, private_key), dtype=D_TYPE)
 
 
 class SMPCMask(object):
@@ -125,7 +126,7 @@ class SMPCMask(object):
         return data - self.mask
 
     def encrypt(self, public_key: rsa.PublicKey) -> SMPCEncryptedMask:
-        mask = self.mask.astype(np.int).tobytes()
+        mask = self.mask.astype(dtype=D_TYPE).tobytes()
         return SMPCEncryptedMask(rsa.encrypt(mask, public_key))
 
 

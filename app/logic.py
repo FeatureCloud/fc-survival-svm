@@ -22,8 +22,7 @@ from sksurv.svm import FastSurvivalSVM
 from federated_pure_regression_survival_svm.model import Coordinator, Client, SurvivalData, SharedConfig, LocalResult, \
     OptFinished
 from federated_pure_regression_survival_svm.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
-from smpc.helper import SMPCClient, MaskedDataDescription, SMPCRequest, SMPCMasked
-
+from smpc.helper import SMPCClient, MaskedDataDescription, SMPCRequest, SMPCMasked, MAX_RAND_INT, D_TYPE
 
 jsonpickle_numpy.register_handlers()
 
@@ -813,11 +812,17 @@ class AppLogic:
                     for k,v in self.timings.items():
                         timings[k] = v
 
+                    # privacy
+                    privacy = {"privacy_technique": "SMPC" if self.enable_smpc else "None"}
+                    if self.enable_smpc:
+                        privacy["SMPC_MAX_RAND_INT"] = MAX_RAND_INT
+                        privacy["MASK_DTYPE"] = D_TYPE.__name__
+
                     metadata = {
                         "model": {
                             "name": "FederatedPureRegressionSurvivalSVM",
                             "version": "v0.1.4-alpha",
-                            "privacy_technique": "SMPC" if self.enable_smpc else "None",
+                            "privacy": privacy,
                             "training_parameters": {
                                 "alpha": sksurv_obj.alpha,
                                 "rank_ratio": sksurv_obj.rank_ratio,
