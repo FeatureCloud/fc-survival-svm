@@ -17,9 +17,8 @@ web_server = bottle.Bottle()
 def index():
     logging.debug(f'[WEB] GET /')
     # return f'Progress: {logic.progress}\nIteration:{logic.iteration}\nStates: {logic.training_states}'
-    templateLoader = jinja2.FileSystemLoader(searchpath="./templates")
+    templateLoader = jinja2.FileSystemLoader(searchpath="/app/templates")
     templateEnv = jinja2.Environment(loader=templateLoader)
     template = templateEnv.get_template('info.html')
     html = template.render(progress=logic.progress, iteration=logic.iteration, states=logic.training_states)
-    logging.debug(html)
     return html
