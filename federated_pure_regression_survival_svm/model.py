@@ -13,7 +13,6 @@ from sksurv.svm import FastSurvivalSVM
 from sksurv.util import check_arrays_survival
 
 from federated_pure_regression_survival_svm.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
-from smpc.helper import MaskedObjectivesW, SMPCMasked, MaskedObjectivesS
 
 
 @dataclass
@@ -73,6 +72,9 @@ class ObjectivesW(LocalResult):
 @dataclass
 class ObjectivesS(LocalResult):
     local_hessp_update: NDArray[Float64]
+
+
+from smpc.helper import MaskedObjectivesW, SMPCMasked, MaskedObjectivesS  # noqa: Import late to avoid circular import problem
 
 
 class Client(object):
