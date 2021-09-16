@@ -509,10 +509,13 @@ class SteppedEventBasedNewtonCgOptimizer(object):
         def _time_and_save_optimizer_result(**kwargs):
             tic = time.perf_counter()
             self._result = scipy.optimize.minimize(
-                _do_objective_func, x0,
+                fun=_do_objective_func,
+                x0=x0,
                 method='newton-cg',
-                jac=_do_gradient_func, hessp=_do_hess_prod,
-                **kwargs)
+                jac=_do_gradient_func,
+                hessp=_do_hess_prod,
+                **kwargs
+            )
             toc = time.perf_counter()
             self._total_time = toc - tic
 
