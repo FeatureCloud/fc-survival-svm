@@ -151,7 +151,7 @@ class Client(object):
 
     @property
     def time_sum(self) -> float:
-        return np.sum(self.data.survival.time_to_event)
+        return float(np.sum(self.data.survival.time_to_event, axis=None))
 
     def generate_data_description(self):
         return DataDescription(
