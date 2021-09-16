@@ -171,9 +171,11 @@ class Client(object):
         return bias, wf
 
     def _calc_zeta_squared_sum(self, bias: float, beta: NDArray[Float64]):
-        dot_product = np.sum(np.multiply(beta.T, self.data.features), axis=1)  # equal to dot product of beta.T with each feature row
+        dot_product = np.sum(np.multiply(beta.T, self.data.features),
+                             axis=1)  # equal to dot product of beta.T with each feature row
         weighted = self.data.survival.time_to_event - dot_product - bias
-        np.maximum(weighted, self._zeros, out=weighted, where=self._censored)  # replaces values of cencored entries inplace with 0 if weighted is below 0
+        np.maximum(weighted, self._zeros, out=weighted,
+                   where=self._censored)  # replaces values of cencored entries inplace with 0 if weighted is below 0
 
         zeta_sq_sum = np.sum(np.square(weighted))
         logging.debug(f"local zeta_sq_sum: beta={beta}, bias={bias}, result={zeta_sq_sum}")
@@ -188,7 +190,8 @@ class Client(object):
     def _gradient_update(self, bias: float, beta: NDArray[Float64]) -> NDArray[Float64]:
         xc = self.data.features.compress(self._regr_mask, axis=0)
         xcs = np.dot(xc, beta)
-        grad_update = self._regr_penalty * (np.dot(xc.T, xcs) + xc.sum(axis=0) * bias - np.dot(xc.T, self._y_compressed))
+        grad_update = self._regr_penalty * (
+                np.dot(xc.T, xcs) + xc.sum(axis=0) * bias - np.dot(xc.T, self._y_compressed))
 
         # intercept
         if self.fit_intercept:
@@ -239,7 +242,8 @@ class Client(object):
             request: SteppedEventBasedNewtonCgOptimizer.RequestHessp
             return self._hessp_update(request)
 
-    def handle_computation_request_smpc(self, request: SteppedEventBasedNewtonCgOptimizer.Request, pub_keys_of_other_parties: Dict[int, rsa.PublicKey]) -> SMPCMasked:
+    def handle_computation_request_smpc(self, request: SteppedEventBasedNewtonCgOptimizer.Request,
+                                        pub_keys_of_other_parties: Dict[int, rsa.PublicKey]) -> SMPCMasked:
         if isinstance(request, SteppedEventBasedNewtonCgOptimizer.RequestWDependent):
             request: SteppedEventBasedNewtonCgOptimizer.RequestWDependent
             response: ObjectivesW = self._get_values_depending_on_w(request)
