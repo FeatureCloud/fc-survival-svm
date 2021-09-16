@@ -14,6 +14,7 @@ from typing import List, Optional, Union, Callable, Type
 import numpy as np
 import scipy.optimize
 from nptyping import NDArray, Float64
+from numpy import ndarray
 from scipy.optimize.optimize import OptimizeResult
 
 
@@ -109,8 +110,7 @@ class SteppedEventBasedNewtonCgOptimizer(Optimizer):
         pass
 
     def __init__(self, x0: Union[NDArray[float], List[Union[float, int]]], **kwargs):
-        """Init instance and start minimization.
-        """
+        """Init instance and start minimization."""
         self._incoming: Queue[SteppedEventBasedNewtonCgOptimizer.Resolved] = Queue(maxsize=1)
         self._outgoing: Queue[SteppedEventBasedNewtonCgOptimizer.Request] = Queue(maxsize=1)
         self._expected_resolve_type: Optional[Type[SteppedEventBasedNewtonCgOptimizer.Resolved]] = None

@@ -100,7 +100,7 @@ class Client(object):
         # calculate these once for zeta function evaluation
         number_of_samples = self.data.features.shape[0]
         self._zeros = np.zeros(number_of_samples)
-        self._censored = (self.data.survival.event_indicator == False)
+        self._censored = (self.data.survival.event_indicator == False)  # noqa
 
     def _put_data(self, X, y):
         self.set_data(SurvivalData(X, y))
@@ -170,14 +170,14 @@ class Client(object):
             wf = w
         return bias, wf
 
-    def _calc_zeta_squared_sum(self, bias: float, beta: NDArray[Float64]):
+    def _calc_zeta_squared_sum(self, bias: float, beta: NDArray[Float64]) -> float:
         dot_product = np.sum(np.multiply(beta.T, self.data.features),
                              axis=1)  # equal to dot product of beta.T with each feature row
         weighted = self.data.survival.time_to_event - dot_product - bias
         np.maximum(weighted, self._zeros, out=weighted,
-                   where=self._censored)  # replaces values of cencored entries inplace with 0 if weighted is below 0
+                   where=self._censored)  # replaces values of censored entries inplace with 0 if weighted is below 0
 
-        zeta_sq_sum = np.sum(np.square(weighted))
+        zeta_sq_sum = float(np.sum(np.square(weighted), axis=None))
         logging.debug(f"local zeta_sq_sum: beta={beta}, bias={bias}, result={zeta_sq_sum}")
         return zeta_sq_sum
 
@@ -291,6 +291,7 @@ class Coordinator(Client):
         self.total_time_sum: Optional[float] = None  # summed up time over all clients
 
         self.w: Optional[NDArray] = None  # weights vector
+        self._last_w: Optional[NDArray] = None
         self.total_zeta_sq_sum: Optional[float] = None
 
         self.newton_optimizer = None
@@ -341,7 +342,7 @@ class Coordinator(Client):
         return self.total_time_sum / self.total_n_samples
 
     def set_initial_w_and_init_optimizer(self):
-        w = np.zeros(self.n_coefficients)
+        w = np.zeros(self.n_coefficients, dtype=float)
         self._last_w = w.copy()
 
         n = w.shape[0]
@@ -352,7 +353,7 @@ class Coordinator(Client):
 
         logging.debug(f"Initial w: {w}")
         self._update_w(w)
-        self.newton_optimizer = SteppedEventBasedNewtonCgOptimizer(w)
+        self.newton_optimizer = SteppedEventBasedNewtonCgOptimizer(w)  # noqa
         return w
 
     def _update_w(self, new_w):
@@ -375,7 +376,7 @@ class Coordinator(Client):
         logging.debug(f"Aggregated hessp update: {aggregated_hessp_update}")
 
         hess_p = self._apply_hessp_update(aggregated_hessp_update)
-        return SteppedEventBasedNewtonCgOptimizer.ResolvedHessp(aggregated_hessp=hess_p)
+        return SteppedEventBasedNewtonCgOptimizer.ResolvedHessp(hessp_val=hess_p)
 
     def aggregated_hessp_smpc(self, result: ObjectivesS) -> SteppedEventBasedNewtonCgOptimizer.ResolvedHessp:
         # unwrap
@@ -383,19 +384,19 @@ class Coordinator(Client):
         logging.debug(f"Aggregated hessp update: {aggregated_hessp_update}")
 
         hess_p = self._apply_hessp_update(aggregated_hessp_update)
-        return SteppedEventBasedNewtonCgOptimizer.ResolvedHessp(aggregated_hessp=hess_p)
+        return SteppedEventBasedNewtonCgOptimizer.ResolvedHessp(hessp_val=hess_p)
 
-    def _calc_fval(self, total_zeta_sq_sum):
+    def _calc_f_val(self, total_zeta_sq_sum):
         bias, beta = self._split_coefficients(self.w)
         val = 0.5 * np.dot(beta.T, beta) + (self.alpha / 2) * total_zeta_sq_sum
         return val
 
-    def _calc_gval(self, aggregated_gradient_update):
+    def _calc_g_val(self, aggregated_gradient_update):
         bias, beta = self._split_coefficients(self.w)
         return np.hstack([0, beta]) + aggregated_gradient_update
 
-    def aggregate_fval_and_gval(self,
-                                results: List[ObjectivesW]) -> SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent:
+    def aggregate_f_val_and_g_val(self,
+                                  results: List[ObjectivesW]) -> SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent:
         # unwrap
         aggregated_zeta_sq_sums = results[0].local_sum_of_zeta_squared
         aggregated_gradient_update = results[0].local_gradient_update
@@ -403,33 +404,33 @@ class Coordinator(Client):
             aggregated_zeta_sq_sums += results[i].local_sum_of_zeta_squared
             aggregated_gradient_update += results[i].local_gradient_update
 
-        fval = self._calc_fval(aggregated_zeta_sq_sums)
-        gval = self._calc_gval(aggregated_gradient_update)
+        f_val = self._calc_f_val(aggregated_zeta_sq_sums)
+        g_val = self._calc_g_val(aggregated_gradient_update)
 
-        logging.debug(f"fval={fval} and gval={gval}")
+        logging.debug(f"f_val={f_val} and g_val={g_val}")
         return SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent(
-            aggregated_objective_function_value=fval,
-            aggregated_gradient=gval
+            f_val=f_val,
+            g_val=g_val,
         )
 
-    def aggregate_fval_and_gval_smpc(self,
-                                     result: ObjectivesW) -> SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent:
+    def aggregate_f_val_and_g_val_smpc(self,
+                                       result: ObjectivesW) -> SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent:
         # unwrap
         aggregated_zeta_sq_sums = result.local_sum_of_zeta_squared
         aggregated_gradients = result.local_gradient_update
 
-        fval = self._calc_fval(aggregated_zeta_sq_sums)
-        gval = aggregated_gradients
-        logging.debug(f"fval={fval} and gval={gval}")
+        f_val = self._calc_f_val(aggregated_zeta_sq_sums)
+        g_val = aggregated_gradients
+        logging.debug(f"f_val={f_val} and g_val={g_val}")
         return SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent(
-            aggregated_objective_function_value=fval,
-            aggregated_gradient=gval
+            f_val=f_val,
+            g_val=g_val,
         )
 
     def aggregate_local_result(self, local_results: List[LocalResult]) -> SteppedEventBasedNewtonCgOptimizer.Resolved:
         if isinstance(local_results[0], ObjectivesW):
             local_results: List[ObjectivesW]
-            return self.aggregate_fval_and_gval(local_results)
+            return self.aggregate_f_val_and_g_val(local_results)
         elif isinstance(local_results[0], ObjectivesS):
             local_results: List[ObjectivesS]
             return self.aggregated_hessp(local_results)
@@ -437,7 +438,7 @@ class Coordinator(Client):
     def aggregate_local_result_smpc(self, local_result: LocalResult) -> SteppedEventBasedNewtonCgOptimizer.Resolved:
         if isinstance(local_result, ObjectivesW):
             local_result: ObjectivesW
-            return self.aggregate_fval_and_gval_smpc(local_result)
+            return self.aggregate_f_val_and_g_val_smpc(local_result)
         elif isinstance(local_result, ObjectivesS):
             local_result: ObjectivesS
             return self.aggregated_hessp_smpc(local_result)
