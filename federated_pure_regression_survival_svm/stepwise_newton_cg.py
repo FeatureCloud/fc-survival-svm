@@ -483,8 +483,8 @@ class SteppedEventBasedNewtonCgOptimizer(object):
             raise self.UnexpectedResolveType()
         result: SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent
 
-        self.fval = result.aggregated_objective_function_value
-        self.gval = result.aggregated_gradient
+        self.f_val = result.aggregated_objective_function_value
+        self.g_val = result.aggregated_gradient
 
     def _updateHessian(self, x, p):
         self._request_calculations_depending_on_s(x, p)
@@ -494,24 +494,24 @@ class SteppedEventBasedNewtonCgOptimizer(object):
             raise self.UnexpectedResolveType()
         result: SteppedEventBasedNewtonCgOptimizer.ResolvedHessp
 
-        self.hval = result.aggregated_hessp
+        self.hessp_val = result.aggregated_hessp
 
     def _start_minimize(self, x0: Union[NDArray[float], List[Union[float, int]]], **kwargs):
         @np_cache
         def _do_objective_func(w: NDArray):
             self._updateWDependent(w)
-            return self.fval
+            return self.f_val
 
         @np_cache
         def _do_gradient_func(w: NDArray):
             # value was already updated in the _do_objective_function_call
-            return self.gval
+            return self.g_val
 
         @np_cache
         def _do_hess_prod(x, p):
             self._updateHessian(x, p)
 
-            return self.hval
+            return self.hessp_val
 
         def _time_and_save_optimizer_result(**kwargs):
             tic = time.perf_counter()
