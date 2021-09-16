@@ -151,15 +151,16 @@ class SteppedEventBasedNewtonCgOptimizer(Optimizer):
 
     def _register_request(self, request: Request):
         """Put a request to the outgoing queue."""
-        self._expected_resolve_type = type(request)
         self._outgoing.put_nowait(request)
 
     def _request_calculations_depending_on_w(self, x: NDArray):
         """Given an updated x generate a request for f_val and g_val and expose it."""
+        self._expected_resolve_type = self.ResolvedWDependent
         self._register_request(self.RequestWDependent(xk=x))
 
     def _request_calculations_depending_on_s(self, x: NDArray, p: NDArray):
         """Given an updated x and p generate a request for hessp_val and expose it."""
+        self._expected_resolve_type = self.ResolvedHessp
         self._register_request(self.RequestHessp(xk=x, psupi=p))
 
     def has_pending(self) -> bool:
