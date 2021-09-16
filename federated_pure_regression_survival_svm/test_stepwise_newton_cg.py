@@ -77,6 +77,7 @@ class TestSteppedEventBasedNewtonCgOptimizer(TestCase):
         eventMinimizer = SteppedEventBasedNewtonCgOptimizer([2, -1])
         _ = eventMinimizer.check_pending_requests()
         self.assertFalse(eventMinimizer.finished)
+        self.assertIsNone(eventMinimizer.result)
 
     def test_wrong_type_resolve(self):
         eventMinimizer = SteppedEventBasedNewtonCgOptimizer([2, -1])
