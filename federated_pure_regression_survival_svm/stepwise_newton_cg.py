@@ -10,7 +10,7 @@ from collections import namedtuple
 from dataclasses import dataclass
 from functools import lru_cache, wraps
 from queue import Queue
-from typing import List, Optional, Union, Callable
+from typing import List, Optional, Union, Callable, Type
 
 import numpy as np
 import scipy.optimize
@@ -410,9 +410,13 @@ class SteppedEventBasedNewtonCgOptimizer(object):
     class ResolvedHessp(Resolved):
         aggregated_hessp: NDArray[Float64]
 
+    class UnexpectedResolveType(Exception):
+        pass
+
     def __init__(self, x0: Union[NDArray[float], List[Union[float, int]]], **kwargs):
         self._incoming: Queue[SteppedEventBasedNewtonCgOptimizer.Resolved] = Queue(maxsize=1)
         self._outgoing: Queue[SteppedEventBasedNewtonCgOptimizer.Request] = Queue(maxsize=1)
+        self._expected_resolve_type: Optional[Type[SteppedEventBasedNewtonCgOptimizer.Resolved]] = None
 
         self._thread: threading.Thread
         self._result: Optional[OptimizeResult] = None
@@ -458,8 +462,11 @@ class SteppedEventBasedNewtonCgOptimizer(object):
     def check_pending_requests(self, block: bool = True, timeout: int = None) -> Request:
         return self._outgoing.get(block=block, timeout=timeout)
 
-    def resolve(self, resolve: Resolved):
-        self._incoming.put_nowait(resolve)
+    def resolve(self, resolved: Resolved):
+        if isinstance(resolved, self._expected_resolve_type):
+            self._incoming.put_nowait(resolved)
+        else:
+            raise self.UnexpectedResolveType
 
     def _get_resolved(self, block: bool = True):
         tic = time.perf_counter()
@@ -473,7 +480,7 @@ class SteppedEventBasedNewtonCgOptimizer(object):
         result: SteppedEventBasedNewtonCgOptimizer.Resolved = self._get_resolved()
 
         if not isinstance(result, SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent):
-            raise Exception('Unexpected resolve type')
+            raise self.UnexpectedResolveType()
         result: SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent
 
         self.fval = result.aggregated_objective_function_value
@@ -484,7 +491,7 @@ class SteppedEventBasedNewtonCgOptimizer(object):
         result: SteppedEventBasedNewtonCgOptimizer.Resolved = self._get_resolved()
 
         if not isinstance(result, SteppedEventBasedNewtonCgOptimizer.ResolvedHessp):
-            raise Exception('Unexpected resolve type')
+            raise self.UnexpectedResolveType()
         result: SteppedEventBasedNewtonCgOptimizer.ResolvedHessp
 
         self.hval = result.aggregated_hessp
