@@ -3,7 +3,6 @@
 # https://github.com/scipy/scipy/blob/master/scipy/optimize/optimize.py
 # which is part of the scipy package
 import _queue
-import logging
 import threading
 import time
 from collections import namedtuple
@@ -15,7 +14,7 @@ from typing import List, Optional, Union, Callable, Type
 import numpy as np
 import scipy.optimize
 from nptyping import NDArray, Float64
-from scipy.optimize.optimize import OptimizeResult, rosen_hess_prod, rosen_der, rosen
+from scipy.optimize.optimize import OptimizeResult
 
 
 class Optimizer(object):
