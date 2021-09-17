@@ -93,7 +93,7 @@ class MaskedObjectivesS(SMPCMasked):
         self.inner_representation = np.array(data.local_hessp_update)
         for client_id, client_pub_key in pub_keys_of_other_parties.items():
             mask = SMPCMask(self.inner_representation.shape)
-            mask.mask = mask.mask * 0.00001
+            mask.mask = mask.mask
             logging.debug(mask)
             self.inner_representation = mask.apply(self.inner_representation)
             self.encrypted_masks[client_id].append(mask.encrypt(client_pub_key))
