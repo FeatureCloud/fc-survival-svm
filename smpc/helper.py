@@ -137,7 +137,9 @@ class SMPCRequest(object):
 
 
 class SMPCClient(object):
-    def __init__(self, client_id):
+    def __init__(self, client_id, random_seed=None):
+        np.random.seed(random_seed)
+
         self.pub_key: rsa.PublicKey
         self._priv_key: rsa.PrivateKey
         self.pub_key, self._priv_key = rsa.newkeys(1024)

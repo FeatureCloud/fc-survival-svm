@@ -119,6 +119,8 @@ class AppLogic:
             self.fit_intercept = config['svm']['fit_intercept']
             self.max_iter = config['svm']['max_iterations']
 
+            self._smpc_seed = config['privacy'].get('_smpc_seed', None)
+
         if self.mode == "directory":
             self.splits = dict.fromkeys([f.path for f in os.scandir(f'{self.INPUT_DIR}/{self.dir}') if f.is_dir()])
             self.models = dict.fromkeys(self.splits.keys())
@@ -359,7 +361,8 @@ class AppLogic:
 
             if state == state_smpc_send_public_key:
                 tic = time.perf_counter()
-                self.smpc_client = SMPCClient(self.id)
+                logging.debug(f"SMPC SEED: {self._smpc_seed}")
+                self.smpc_client = SMPCClient(self.id, random_seed=self._smpc_seed)
                 toc = time.perf_counter()
                 self.timings['smpc_init'] = toc - tic
                 self.communicator.send_to_coordinator({'client': self.id, 'pub_key': self.smpc_client.pub_key})
