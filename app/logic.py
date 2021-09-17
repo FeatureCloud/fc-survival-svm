@@ -717,6 +717,7 @@ class AppLogic:
                                 "nfev": opt_result.nfev,
                                 "njev": opt_result.njev,
                                 "nhev": opt_result.nhev,
+                                "x": opt_result.x,
                             },
                             "coefficients": {
                                 "weights": beta,
