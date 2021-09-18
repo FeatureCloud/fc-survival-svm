@@ -343,15 +343,16 @@ class Coordinator(Client):
     def time_mean(self):
         return self.total_time_sum / self.total_n_samples
 
-    def set_initial_w_and_init_optimizer(self):
-        w = np.zeros(self.n_coefficients, dtype=float)
-        self._last_w = w.copy()
+    def set_initial_w_and_init_optimizer(self, w: Optional[np.ndarray] = None):
+        if w is None:
+            w = np.zeros(self.n_coefficients, dtype=float)
+            self._last_w = w.copy()
 
-        n = w.shape[0]
-        if self.fit_intercept:
-            time_mean = self.time_mean
-            w[0] = time_mean
-            n -= 1
+            n = w.shape[0]
+            if self.fit_intercept:
+                time_mean = self.time_mean
+                w[0] = time_mean
+                n -= 1
 
         logging.debug(f"Initial w: {w}")
         self._update_w(w)

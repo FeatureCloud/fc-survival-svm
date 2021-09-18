@@ -1,5 +1,6 @@
 import _queue
 import collections
+import datetime
 import logging
 import os
 import pickle
@@ -83,6 +84,8 @@ class AppLogic:
 
         self.timings: Dict[str, float] = collections.defaultdict(float)
 
+        self._log_f_val = collections.defaultdict(dict)
+
     def read_config(self):
         with open(os.path.join(self.INPUT_DIR, "config.yml")) as f:
             config = yaml.load(f, Loader=yaml.FullLoader)['fc_survival_svm']
@@ -110,6 +113,8 @@ class AppLogic:
             self.max_iter = config['svm']['max_iterations']
 
             self._smpc_seed = config['privacy'].get('_smpc_seed', None)
+            self._tries_recover = config['svm'].get('_tries_recover', 3 if self.enable_smpc else 0)
+            logging.debug(f"TRIES: {self._tries_recover}")
 
         if self.mode == "directory":
             self.splits = dict.fromkeys([f.path for f in os.scandir(f'{self.INPUT_DIR}/{self.dir}') if f.is_dir()])
@@ -299,7 +304,8 @@ class AppLogic:
         state_global_aggregation_of_data_attributes = 6
         state_global_optimization = 7
         state_local_optimization_calculation_requests_listener = 8
-        state_send_global_model = 9
+        state_check_success_and_try_recover = 9.0
+        state_send_global_model = 9.1
         state_set_global_model = 10
         state_generate_predictions = 11
         state_shutdown = 12
@@ -467,6 +473,7 @@ class AppLogic:
                         data_description = aggregated[split].unmasked_obj(mask_sum)
 
                         logging.debug(f"Data description at split {split}: {data_description}")
+
                         self.models[split].set_data_description(data_description)
                         self.models[split].set_initial_w_and_init_optimizer()
 
@@ -571,6 +578,13 @@ class AppLogic:
                     aggregated: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = self._fulfill_all_requests_global_smpc(local_results, self.models)
                 else:
                     aggregated: Dict[str, Optional[SteppedEventBasedNewtonCgOptimizer.Resolved]] = self._fulfill_all_requests_global(local_results, self.models)
+
+                for split in self.splits.keys():
+                    resolved = aggregated[split]
+                    if isinstance(resolved, SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent):
+                        resolved: SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent
+                        self._log_f_val[split][datetime.datetime.now().timestamp()] = resolved.f_val
+
                 logging.debug(f"Aggregated: {aggregated}")
                 self._inform_all(aggregated, self.models)
 
@@ -579,7 +593,7 @@ class AppLogic:
 
                 if self._all_finished(self.models):
                     logging.info('Optimization for all splits finished')
-                    state = state_send_global_model
+                    state = state_check_success_and_try_recover
                 else:
                     self.communicator.broadcast(requests)
                     logging.info(f'[COORDINATOR] Sending calculation requests')
@@ -620,6 +634,33 @@ class AppLogic:
                     else:
                         state = state_local_optimization_calculation_requests_listener
                         logging.info(f'[CLIENT] Sending attributes to coordinator')
+
+            if state == state_check_success_and_try_recover:
+                # check all successful
+                if self._tries_recover > 0:
+                    needs_recover = False
+                    for split in self.splits.keys():
+                        model: Coordinator = self.models[split]
+                        optimizer: SteppedEventBasedNewtonCgOptimizer = model.newton_optimizer
+                        result: OptimizeResult = optimizer.result
+                        if not result.success:
+                            needs_recover = True
+                            self.models[split].set_initial_w_and_init_optimizer(w=result.x)
+
+                    if needs_recover:
+                        logging.debug("Trying to recover from failure!")
+                        self._tries_recover -= 1
+                        requests = self._get_all_requests(self.models)
+
+                        logging.debug(requests)
+                        self.communicator.broadcast(requests)
+                        logging.info(f'[COORDINATOR] Sending initial calculation requests')
+
+                        state = state_local_optimization_calculation_requests_listener
+                    else:
+                        state = state_send_global_model
+                else:
+                    state = state_send_global_model
 
             if state == state_send_global_model:
                 self.progress = 'optimization finished...'
@@ -723,6 +764,14 @@ class AppLogic:
 
                     with open(meta_output_path, "w") as fh:
                         yaml.dump(metadata, fh)
+
+                    # write convergence info
+                    if len(self._log_f_val) != 0:
+                        f_val_track_output_path = os.path.join(split.replace("/input", "/output"), 'f_val_track.csv')
+                        with open(f_val_track_output_path, "w") as fh:
+                            fh.write(f"timestamp,f_val\n")
+                            for timestamp, f_val in self._log_f_val[split].items():
+                                fh.write(f"{timestamp},{f_val}\n")
 
                     # copy inputs to outputs
                     output_split_dir = split.replace(self.INPUT_DIR, self.OUTPUT_DIR)
