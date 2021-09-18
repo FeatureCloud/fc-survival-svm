@@ -731,7 +731,7 @@ class AppLogic:
                     metadata = {
                         "model": {
                             "name": "FederatedPureRegressionSurvivalSVM",
-                            "version": "v0.1.6-alpha",
+                            "version": "v0.1.7-alpha",
                             "privacy": privacy,
                             "training_parameters": {
                                 "alpha": sksurv_obj.alpha,
