@@ -1,6 +1,5 @@
 import _queue
 import collections
-import hashlib
 import logging
 import os
 import pickle
@@ -83,15 +82,6 @@ class AppLogic:
         self.last_requests = None
 
         self.timings: Dict[str, float] = collections.defaultdict(float)
-
-    @staticmethod
-    def md5_hexdigest(path):
-        with open(path, "rb") as f:
-            file_hash = hashlib.md5()
-            while chunk := f.read(8192):
-                file_hash.update(chunk)
-
-        return file_hash.hexdigest()
 
     def read_config(self):
         with open(os.path.join(self.INPUT_DIR, "config.yml")) as f:
@@ -725,7 +715,6 @@ class AppLogic:
                             },
                             "training_data": {
                                 "file": self.train_data_paths[split].replace(self.INPUT_DIR, "."),
-                                "file_md5": self.md5_hexdigest(self.train_data_paths[split]),
                             },
                             "timings": timings,
                         },
