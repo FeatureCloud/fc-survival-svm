@@ -104,6 +104,7 @@ class AppLogic:
             self.label_time_to_event = config["format"]["label_survival_time"]
             self.label_event = config["format"]["label_event"]
             self.event_truth_value = config["format"].get("event_truth_value", True)  # default value
+            logging.debug(f"EVENT TRUTH VALUE: {self.event_truth_value}")
 
             self.mode = config['split']['mode']
             self.dir = config['split']['dir']
@@ -138,10 +139,13 @@ class AppLogic:
 
     @staticmethod
     def event_value_to_truth_array(event: NDArray[Any], truth_value: Any) -> NDArray[Bool]:
+        logging.debug(f"event: {event}")
         if truth_value is True and event.dtype == np.dtype('bool'):  # nothing to do...
+            logging.debug("NOTHING TO DO")
             return event
 
         truth_array = (event == truth_value)
+        logging.debug(f"truth {truth_array}")
         return truth_array
 
     def read_data_frame(self, path):
@@ -345,8 +349,6 @@ class AppLogic:
                     train_data_path = os.path.join(split, self.train_filename)
                     self.splits[split] = self.read_survival_data(train_data_path)
                     self.train_data_paths[split] = train_data_path
-
-                    self.splits[split] = self.read_survival_data(train_data_path)
                 toc = time.perf_counter()
                 self.timings['read_data'] = toc - tic
 
@@ -757,6 +759,9 @@ class AppLogic:
                             },
                             "training_data": {
                                 "file": self.train_data_paths[split].replace(self.INPUT_DIR, "."),
+                                "label_survival_time": self.label_time_to_event,
+                                "label_event": self.label_event,
+                                "event_truth_value": self.event_truth_value,
                             },
                             "timings": timings,
                         },
