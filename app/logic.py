@@ -20,7 +20,7 @@ from communication.silo_communication import Communication, JsonEncodedCommunica
 from federated_pure_regression_survival_svm.model import Coordinator, Client, SurvivalData, SharedConfig, LocalResult, \
     OptFinished
 from federated_pure_regression_survival_svm.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
-from smpc.helper import SMPCClient, MaskedDataDescription, SMPCRequest, SMPCMasked, MAX_RAND_INT, D_TYPE
+from smpc.helper import SmpcKeyManager, MaskedDataDescription, SMPCRequest, SMPCMasked, MAX_RAND_INT, D_TYPE
 
 
 
@@ -53,7 +53,7 @@ class AppLogic:
         self.OUTPUT_DIR = "/mnt/output"
 
         self.models: Dict[str, Union[Client, Coordinator]] = {}
-        self.smpc_client: Optional[SMPCClient] = None
+        self.smpc_client: Optional[SmpcKeyManager] = None
 
         self.train_filename = None
         self.test_filename = None
@@ -240,7 +240,7 @@ class AppLogic:
             if request is None:
                 continue
             model: Client = models[model_identifier]
-            local_results[model_identifier] = model.handle_computation_request_smpc(request, self.smpc_client.pub_keys_of_other_parties)
+            local_results[model_identifier] = model.handle_computation_request_smpc(request, self.smpc_client.public_keys)
         return local_results
 
     def _fulfill_all_requests_global(self, local_results: Dict[str, Optional[List[LocalResult]]],
@@ -289,6 +289,8 @@ class AppLogic:
         try:
             self.app_flow()
         except Exception as e:  # gonna catch 'em all
+            logging.debug("EXCEPTION")
+            logging.error(e)
             self.status_finished = True
             self.communicator.clear()
             self.communicator.broadcast(Exception(f'app_flow of client {self.id} failed'))
@@ -358,12 +360,18 @@ class AppLogic:
                     state = state_preprocessing
 
             if state == state_smpc_send_public_key:
+                self.progress = 'Generate key pair and send public key to coordinator'
+                logging.info(self.progress)
+
                 tic = time.perf_counter()
                 logging.debug(f"SMPC SEED: {self._smpc_seed}")
-                self.smpc_client = SMPCClient(self.id, random_seed=self._smpc_seed)
+                self.smpc_client = SmpcKeyManager(self.id, random_seed=self._smpc_seed)
                 toc = time.perf_counter()
                 self.timings['smpc_init'] = toc - tic
-                self.communicator.send_to_coordinator({'client': self.id, 'pub_key': self.smpc_client.pub_key})
+
+                logging.debug("Send public key to coordinator")
+                own_id, own_public_key = self.smpc_client.get_pubkey()
+                self.communicator.send_to_coordinator({'client': own_id, 'pub_key': own_public_key})
 
                 if self.coordinator:
                     state = state_smpc_aggregate_public_keys
@@ -371,27 +379,37 @@ class AppLogic:
                     state = state_smpc_set_pubkeys
 
             if state == state_smpc_aggregate_public_keys:
+                self.progress = 'Collecting public keys'
+                logging.info(self.progress)
+
                 public_keys = self.communicator.wait_for_data_from_all()
-                logging.debug(public_keys)
+                logging.debug(f"Received public keys from all clients:\n{public_keys}")
 
+                logging.info("Register public keys of other silos")
                 for pubkey_info in public_keys:
-                    logging.debug(pubkey_info)
-                    self.smpc_client.add_party_pub_key(pubkey_info['client'], pubkey_info['pub_key'])
+                    client, pub_key = pubkey_info['client'], pubkey_info['pub_key']
+                    logging.debug(f"Public key for client {client!r}: {pub_key}")
+                    self.smpc_client.add_party_pub_key(client, pub_key)
 
-                self.communicator.broadcast(self.smpc_client.pub_keys_of_other_parties)
+                logging.debug("Broadcasting public keys of all silos")
+                self.communicator.broadcast(self.smpc_client.public_keys)
 
                 state = state_smpc_set_pubkeys
 
             if state == state_smpc_set_pubkeys:
-                pub_keys = self.communicator.wait_for_data()
-                logging.debug(pub_keys)
+                self.progress = 'Receiving public keys'
+                logging.info(self.progress)
 
+                pub_keys = self.communicator.wait_for_data()
+                logging.debug(f"Received public keys: {pub_keys}")
                 self.smpc_client.add_party_pub_key_dict(pub_keys)
 
                 state = state_preprocessing
 
             if state == state_preprocessing:
-                self.progress = 'preprocessing...'
+                self.progress = 'Preprocessing data'
+                logging.info(self.progress)
+
                 tic = time.perf_counter()
                 for split in self.splits.keys():
                     logging.info(f'Preprocess {split}')
@@ -404,19 +422,22 @@ class AppLogic:
                     model.log_transform_times()  # run log transformation of time values for regression objective
                 toc = time.perf_counter()
                 self.timings['preprocessing'] = toc - tic
+
                 state = state_send_data_attributes
 
             if state == state_send_data_attributes:
-                self.progress = "generating data descriptions..."
+                self.progress = "Generating data attributes"
+                logging.info(self.progress)
+
                 data_to_send = {}
                 for split in self.splits.keys():
                     logging.info(f'Generate data attributes for split {split}')
-                    data_description = self.models[split].generate_data_description()
-                    logging.debug(data_description)
+                    data_attribute = self.models[split].generate_data_description()
+                    logging.debug(data_attribute)
                     if self.enable_smpc:
-                        data_to_send[split] = MaskedDataDescription().mask(data_description, self.smpc_client.pub_keys_of_other_parties)
+                        data_to_send[split] = MaskedDataDescription().mask(data_attribute, self.smpc_client.public_keys)
                     else:
-                        data_to_send[split] = data_description
+                        data_to_send[split] = data_attribute
 
                 logging.debug(f"Data attributes:\n{data_to_send}")
                 self.communicator.send_to_coordinator(data_to_send)
@@ -451,12 +472,16 @@ class AppLogic:
                     # get aggregated masks
                     self.communicator.broadcast(SMPCRequest(masks))
                     # fulfill at coordinator
+                    logging.debug("Wait for aggregated masks")
                     request: SMPCRequest = self.communicator.wait_for_data()
+                    logging.debug("Received aggregated masks")
                     summed_up_masks_local = self._fulfil_smpc_sum_up_masks(request)
+                    logging.debug("Summing up masks")
                     self.communicator.send_to_coordinator(summed_up_masks_local)
 
-
+                    logging.debug("1")
                     results: List[Dict[str, np.array]] = self.communicator.wait_for_data_from_all()
+                    logging.debug("2")
                     logging.debug(results)
                     masks_for_split = collections.defaultdict(list)
                     for split in self.splits.keys():
@@ -472,11 +497,11 @@ class AppLogic:
                             mask_sum += masks_for_split[split][i]
                         logging.debug(mask_sum)
                         logging.debug(aggregated[split])
-                        data_description = aggregated[split].unmasked_obj(mask_sum)
+                        data_attribute = aggregated[split].unmasked_obj(mask_sum)
 
-                        logging.debug(f"Data description at split {split}: {data_description}")
+                        logging.debug(f"Data description at split {split}: {data_attribute}")
 
-                        self.models[split].set_data_description(data_description)
+                        self.models[split].set_data_description(data_attribute)
                         self.models[split].set_initial_w_and_init_optimizer()
 
                 else:

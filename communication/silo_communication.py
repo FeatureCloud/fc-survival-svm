@@ -1,5 +1,6 @@
 import abc
 import logging
+import threading
 import time
 
 import jsonpickle
@@ -10,11 +11,14 @@ jsonpickle_numpy.register_handlers()
 
 class Communication(abc.ABC):
     def __init__(self):
+        self.is_smpc: bool = False
+
         self.is_coordinator = None
         self.num_clients = None
 
         self.status_available = False  # Indicates whether there is data to share, if True make sure self.data_out is available
         self.data_incoming = []
+        self._incoming_lock = threading.Lock()
         self.data_outgoing = None
 
     def init(self, is_coordinator: bool, num_clients: int):
@@ -28,7 +32,12 @@ class Communication(abc.ABC):
     def handle_incoming(self, data):
         # This method is called when new data arrives
         logging.info("Process incoming data....")
+        self._incoming_lock.acquire()
+        logging.debug("Adding data to data_incoming")
         self.data_incoming.append(data.read())
+        logging.debug(f"data_incoming length: {len(self.data_incoming)}")
+        logging.debug(f"data_incoming: {self.data_incoming}")
+        self._incoming_lock.release()
 
     def handle_outgoing(self):
         logging.info("Process outgoing data...")
@@ -100,30 +109,49 @@ class JsonEncodedCommunication(Communication):
         self._assert_is_coordinator()
 
         while True:
+            self._incoming_lock.acquire()
             if len(self.data_incoming) == self.num_clients:
                 logging.debug("Received response of all nodes")
+
                 decoded_data = [self._decode(client_data) for client_data in self.data_incoming]
                 self.data_incoming = []
+
+                self._incoming_lock.release()
                 return decoded_data
             elif len(self.data_incoming) > self.num_clients:
+                logging.error("Received more data than expected")
                 raise Exception("Received more data than expected")
             else:
                 logging.debug(f"Waiting for all nodes to respond. {len(self.data_incoming)} of {self.num_clients}...")
-                time.sleep(timeout)
+
+            self._incoming_lock.release()
+            time.sleep(timeout)
 
     def wait_for_data(self, timeout: int = 3):
         self._assert_initialized()
 
         while True:
+            self._incoming_lock.acquire()
             if len(self.data_incoming) == 1:
                 logging.debug("Received response")
                 data = self.data_incoming[0]
                 logging.debug(data)
                 decoded_data = self._decode(data)
                 self.data_incoming = []
+
+                self._incoming_lock.release()
                 return decoded_data
             elif len(self.data_incoming) > 1:
+                logging.error("Received more data than expected")
                 raise Exception("Received more data than expected")
             else:
                 logging.debug("Waiting for node response")
-                time.sleep(timeout)
+
+            self._incoming_lock.release()
+            time.sleep(timeout)
+
+
+class SmpcCommunication(JsonEncodedCommunication):
+    def __init__(self):
+        super().__init__()
+        self.is_smpc = True
