@@ -1,3 +1,4 @@
+import bottle
 from bottle import Bottle
 
 from app import app
@@ -13,4 +14,14 @@ web_server = Bottle()
 @web_server.route('/')
 def index():
     print(f'[WEB] GET /')
+
+    if app.current_state.name == 'web_config':
+        bottle.redirect('/web_config')
     return f'State: {app.current_state.name}'
+
+
+@web_server.route('/web_config')
+def web_config():
+    print(f'[WEB] GET /')
+
+    return f'NotImplemented'
