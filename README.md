@@ -1,3 +1,1 @@
-# FeatureCloud App Template
-
-Website: https://featurecloud.ai
+# Survival Support-Vector-Machine FeatureCloud App
