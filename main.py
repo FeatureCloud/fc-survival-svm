@@ -1,11 +1,17 @@
+import logging
+
 from bottle import Bottle
 
 from api.http_ctrl import api_server
 from api.http_web import web_server
 from app import app
 
-server = Bottle()
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)s [%(filename)s %(name)s %(funcName)s (%(lineno)d)]: %(message)s",
+)
 
+server = Bottle()
 
 if __name__ == '__main__':
     app.register()

@@ -4,3 +4,7 @@ joblib
 bios
 pydot
 pyyaml
+
+numpy
+nptyping
+pandas

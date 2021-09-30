@@ -1,4 +1,5 @@
 import datetime
+import logging
 import threading
 import traceback
 from time import sleep
@@ -40,7 +41,7 @@ class App:
         self.data_incoming = []
         self.data_outgoing = []
 
-        self.default_smpc = {'operation': 'add', 'serialization': 'json', 'shards': 0, 'range': 0}
+        self.default_smpc = {'operation': 'add', 'serialization': 'json', 'shards': 0, 'range': 1_000}
 
         self.current_state: AppState or None = None
         self.states: Dict[str, AppState] = {}
@@ -70,8 +71,9 @@ class App:
     def guarded_run(self):
         try:
             self.run()
-        except Exception as e:
+        except Exception as e:  # catch all  # noqa
             self.log(traceback.format_exc())
+            sleep(10)
             self.status_message = 'ERROR. See log for stack trace.'
             self.status_state = STATE_ERROR
             self.status_finished = True
@@ -113,6 +115,7 @@ class App:
             self.status_available = True
             self.status_smpc = self.default_smpc if self.data_outgoing[0][1] else None
             self.status_destination = self.data_outgoing[0][2]
+        self.log(f'OUTGOING: {data}')
         return data[0]
 
     def _register_state(self, name, state, participant, coordinator, **kwargs):
@@ -165,8 +168,8 @@ class App:
         self.transition_log.append((datetime.datetime.now(), name))
         self.current_state = transition[1]
 
-    def log(self, msg):
-        print(msg, flush=True)
+    def log(self, msg, level=logging.INFO):
+        logging.log(level, msg)
 
 
 class AppState:
@@ -200,7 +203,7 @@ class AppState:
                 if n == 1:
                     return data[0][0]
                 else:
-                    return data[0]
+                    return data
             sleep(1)
 
     def send_data_to_participant(self, data, destination):
