@@ -86,6 +86,6 @@ def during_training():
     </body>
     </html>
     """
-
-    return f'State: {app.current_state.name}\n' \
-           f'Splits: {str(split_manager.data)}'
+    #
+    # return f'State: {app.current_state.name}\n' \
+    #        f'Splits: {str(split_manager.data)}'
