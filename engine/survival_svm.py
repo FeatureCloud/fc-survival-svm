@@ -3,7 +3,7 @@ import os
 import pickle
 import shutil
 from time import sleep
-from typing import Type, Dict, Optional, List
+from typing import Type, Dict, Optional, List, Union, Tuple
 
 import jsonpickle
 import jsonpickle.ext.numpy as jsonpickle_numpy
@@ -253,6 +253,7 @@ class SendDataAttributes(DependingOnTypeState):
 
     def run(self):
         self.update(message='Sending data attributes', progress=0.09)
+        config: Config = self.app.internal.get('config')
 
         split_manager: SplitManager = self.app.internal.get('split_manager')
         data_attributes = {}
@@ -273,7 +274,7 @@ class SendDataAttributes(DependingOnTypeState):
         json_encoded_str = jsonpickle.encode(data_attributes)
         json_encoded_bytes = json_encoded_str.encode()
         self.app.log(json_encoded_str, level=logging.DEBUG)
-        self.send_data_to_coordinator(json_encoded_bytes, use_smpc=True)
+        self.send_data_to_coordinator(json_encoded_bytes, use_smpc=config.enable_smpc)
 
         if self.app.coordinator:
             return self.next_state_coordinator
@@ -290,12 +291,21 @@ class InitOptimizer(BlankState):
         parameters: Parameters = config.parameters
         fit_intercept = parameters.fit_intercept
 
-        smpc_data_attributes = jsonpickle.decode(self.await_data())
+        split_manager: SplitManager = self.app.internal.get('split_manager')
+
+        if config.enable_smpc:
+            smpc_data_attributes = jsonpickle.decode(self.await_data())
+        else:
+            data: List[Tuple[str, str]] = self.gather_data()
+            self.app.log(f'data: {data}')
+            data: List[Dict[str, Dict[str, Union[int, float]]]] = [jsonpickle.decode(d[0]) for d in data]
+            self.app.log(f'data_decoded: {data}')
+            smpc_data_attributes = split_manager.add_int_values_in_split_dictionaries(data)
+
         self.app.log(smpc_data_attributes, level=logging.DEBUG)
 
         self.update(message='Initialize optimization', progress=0.10)
 
-        split_manager: SplitManager = self.app.internal.get('split_manager')
         for split in split_manager:
             attributes = smpc_data_attributes.get(split.name)
 
@@ -410,6 +420,8 @@ class ListenRequest(DependingOnTypeState):
         self.update(message=f'Awaiting computation requests [{n_exchange}]')
         self.app.internal['round'] += 1
 
+        config: Config = self.app.internal.get('config')
+
         requests: Dict[str, Optional[Dict[str, List[float]]]] = self.await_data()
         requests = jsonpickle.decode(requests)
         self.app.log(requests, level=logging.DEBUG)
@@ -449,7 +461,7 @@ class ListenRequest(DependingOnTypeState):
 
         self.app.log(responses, level=logging.DEBUG)
         self.update(message=f'Sending responses [{n_exchange}]')
-        self.send_data_to_coordinator(jsonpickle.encode(responses).encode(), use_smpc=True)
+        self.send_data_to_coordinator(jsonpickle.encode(responses).encode(), use_smpc=config.enable_smpc)
         return super().run()
 
 
@@ -458,11 +470,22 @@ class SetResponse(BlankState):
     def run(self):
         n_exchange = self.app.internal.get('round')
         self.update(message=f'Waiting for local updates [{n_exchange}]')
-        local_results_json = self.await_data()
-        local_results = jsonpickle.decode(local_results_json)
+
+        config: Config = self.app.internal.get('config')
+        split_manager: SplitManager = self.app.internal.get('split_manager')
+
+        if config.enable_smpc:
+            local_results = jsonpickle.decode(self.await_data())
+        else:
+            data: List[Tuple[str, str]] = self.gather_data()
+            self.app.log(f'data: {data}')
+            data: List[Dict[str, Tuple[float, List[float]]]] = [jsonpickle.decode(d[0]) for d in data]
+            self.app.log(f'data_decoded: {data}')
+            local_results = split_manager.add_answer_values_in_split_dictionaries(data)
+
+        self.app.log(f'local_results: {local_results}')
 
         self.update(message=f'Aggregate [{n_exchange}]')
-        split_manager: SplitManager = self.app.internal.get('split_manager')
         for split in split_manager:
             result = local_results.get(split.name)
             if result is None:

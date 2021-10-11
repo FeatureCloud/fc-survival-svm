@@ -2,7 +2,9 @@ import dataclasses
 import enum
 import os
 from collections import Iterable, Iterator
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Union, Tuple
+
+import numpy as np
 
 from app.survival_svm.settings import INPUT_DIR, OUTPUT_DIR
 
@@ -63,3 +65,51 @@ class SplitManager:
     def _create_data(self):
         for split in self.splits:
             self.data[split] = {}
+
+    def add_int_values_in_split_dictionaries(self, data: List[Dict[str, Dict[str, Union[int, float]]]]) -> Dict[str, Dict[str, Union[int, float]]]:
+        aggregated = {}
+        for split in iter(self):
+            data_iterator = iter(data)
+            split_aggregated: Dict[str, Union[int, float]] = next(data_iterator)[split.name]  # get first entry to learn structure of inner dict
+            for client_part in data_iterator:  # iterate over the rest
+                k: str
+                for k in split_aggregated.keys():
+                    split_aggregated[k] += client_part[split.name][k]
+            aggregated[split.name] = split_aggregated
+        return aggregated
+
+    def add_answer_values_in_split_dictionaries(self, data: List[Dict[str, Union[Tuple[float,List[float]], List[float]]]]) -> Dict[str, Union[Tuple[float,List[float]], List[float]]]:
+        aggregated = {}
+        strategy = {}
+
+        client_dict: Dict[str, Union[Tuple[float,List[float]], List[float]]]
+        for client_dict in data:
+            for split_name, split_data in client_dict.items():
+                value = aggregated.get(split_name)  # previous
+
+                if isinstance(split_data, list):
+                    strategy[split_name] = 'wdep'
+                    value: np.ndarray
+                    if value is not None:
+                        value += np.array(split_data)
+                    else:
+                        value = np.array(split_data)
+                else:
+                    strategy[split_name] = 'hessp'
+                    value: List
+                    if value is not None:
+                        value[0] += split_data[0]
+                        value[1] += np.array(split_data[1])
+                    else:
+                        value: List = [split_data[0], np.array(split_data[1])]
+
+                aggregated[split_name] = value
+
+        ret = {}
+        for split_name, aggregated_data in aggregated.items():
+            if strategy[split_name] == 'wdep':
+                ret[split_name] = aggregated_data.tolist()
+            elif strategy[split_name] == 'hessp':
+                ret[split_name] = (aggregated_data[0], aggregated_data[1].tolist())
+
+        return ret  # noqa
