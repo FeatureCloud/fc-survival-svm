@@ -24,8 +24,6 @@ from logic.splits import SplitManager
 
 jsonpickle_numpy.register_handlers()
 
-USE_SMPC = True
-
 
 class BlankState(AppState):
 
@@ -552,7 +550,7 @@ class WriteResult(BlankState):
             }
 
             # privacy
-            privacy = {"privacy_technique": "SMPC" if USE_SMPC else "None"}
+            privacy = {"privacy_technique": "SMPC" if config.enable_smpc else "None"}
 
             metadata = {
                 "model": {
