@@ -57,16 +57,6 @@ class DependingOnTypeState(AppState):
             return self.next_state_participant
 
 
-# class CopyState(BlankState):
-#
-#     def __init__(self, next_state=None):
-#         super().__init__(next_state)
-#
-#     def run(self):
-#         dir_util.copy_tree('/mnt/input/', '/mnt/output/')
-#         return super().run()
-
-
 class CheckConfigSupplied(AppState):
 
     def __init__(self, next_state_exists: str, next_state_missing: str, section: str):
