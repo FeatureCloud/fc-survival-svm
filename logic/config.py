@@ -74,14 +74,14 @@ class Config:
 
             config.model_output = config_yml['output']['model']
             config.pred_output = config_yml['output']['pred']
-            config.meta_output = config_yml['output'].get("meta", "meta.yml")  # default value
-            config.train_output = config_yml['output'].get("train", config.train_filename)  # default value
-            config.test_output = config_yml['output'].get("test", config.test_filename)  # default value
+            config.meta_output = config_yml['output'].get('meta', 'meta.yml')  # default value
+            config.train_output = config_yml['output'].get('train', config.train_filename)  # default value
+            config.test_output = config_yml['output'].get('test', config.test_filename)  # default value
 
             config.sep = config_yml['format']['sep']
-            config.label_time_to_event = config_yml["format"]["label_survival_time"]
-            config.label_event = config_yml["format"]["label_event"]
-            config.event_truth_value = config_yml["format"].get("event_truth_value", True)  # default value
+            config.label_time_to_event = config_yml['format']['label_survival_time']
+            config.label_event = config_yml['format']['label_event']
+            config.event_truth_value = config_yml['format'].get('event_truth_value', True)  # default value
 
             if config_yml.get('svm'):
                 config.parameters.alpha = config_yml['svm']['alpha']
