@@ -92,7 +92,7 @@ class Config:
             config.mode = SplitMode.from_str(config_yml['split']['mode'])
             config.dir = config_yml['split']['dir']
 
-            config.enable_smpc = config_yml['privacy']['enable_smpc']
+            config.enable_smpc = config_yml['privacy'].get('enable_smpc', True)  # default value
             requested_min_samples = config_yml['privacy'].get('min_samples')
             if requested_min_samples is not None:
                 if requested_min_samples > cls.DEFAULT_MIN_SAMPLES:
