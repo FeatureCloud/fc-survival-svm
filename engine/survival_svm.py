@@ -628,14 +628,19 @@ class GeneratePredictions(BlankState):
             if svm is None:
                 continue
 
-            test_data = os.path.join(split.input_dir, config.test_filename)
-            X_test, y_test = logic.data.read_survival_data_np(test_data)
+            test_data_path = os.path.join(split.input_dir, config.test_filename)
+            X_test, y_test = logic.data.read_survival_data(
+                test_data_path, sep=config.sep,
+                label_event=config.label_event, label_time_to_event=config.label_time_to_event,
+                event_truth_value=config.event_truth_value)
 
             predictions = svm.predict(X_test)
 
             # re-add tte and event column
             X_test[config.label_time_to_event] = y_test['event_indicator']
             X_test[config.label_event] = y_test['time_to_event']
+            # add predictions to dataframe
+            X_test['predicted_tte'] = predictions.tolist()
 
             pred_output_path = os.path.join(split.replace(settings.INPUT_DIR, settings.OUTPUT_DIR), config.pred_output)
             self.app.log(f"Writing predictions to {pred_output_path}")
