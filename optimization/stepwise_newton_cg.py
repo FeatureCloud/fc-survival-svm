@@ -234,7 +234,7 @@ class SteppedEventBasedNewtonCgOptimizer(Optimizer):
                 method='newton-cg',
                 jac=_do_gradient_func,
                 hessp=_do_hess_prod,
-                options={'maxiter': maxiter}
+                options={'maxiter': maxiter},
                 **kwargs
             )
             toc = time.perf_counter()
