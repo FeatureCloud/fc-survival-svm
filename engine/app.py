@@ -40,6 +40,7 @@ class App:
 
         self.data_incoming = []
         self.data_outgoing = []
+        self.outgoing_lock: threading.Lock = threading.Lock()
 
         self.default_smpc = {'operation': 'add', 'serialization': 'json', 'shards': 0, 'range': 1_000_000_000}
 
@@ -99,6 +100,7 @@ class App:
 
     def handle_incoming(self, data, client):
         # This method is called when new data arrives
+        self.log(f"HANDLE INCOMING")
         self.data_incoming.append((data.read(), client))
 
     def handle_outgoing(self):
@@ -116,6 +118,7 @@ class App:
             self.status_smpc = self.default_smpc if self.data_outgoing[0][1] else None
             self.status_destination = self.data_outgoing[0][2]
         self.log(f'OUTGOING: {data}')
+        self.outgoing_lock.release()
         return data[0]
 
     def _register_state(self, name, state, participant, coordinator, **kwargs):
@@ -197,6 +200,7 @@ class AppState:
 
     def await_data(self, n: int = 1, unwrap: bool = True):
         while True:
+            self.app.log(f'INCOMING: ({len(self.app.data_incoming)}) {self.app.data_incoming}')
             if len(self.app.data_incoming) >= n:
                 data = self.app.data_incoming[:n]
                 self.app.data_incoming = self.app.data_incoming[n:]
@@ -210,6 +214,7 @@ class AppState:
         if destination == self.app.id:
             self.app.data_incoming.append((data, self.app.id))
         else:
+            self.app.outgoing_lock.acquire()
             self.app.data_outgoing.append((data, False, destination))
             self.app.status_destination = destination
             self.app.status_smpc = None
@@ -220,6 +225,7 @@ class AppState:
             if send_to_self:
                 self.app.data_incoming.append((data, self.app.id))
         else:
+            self.app.outgoing_lock.acquire()
             self.app.data_outgoing.append((data, use_smpc, None))
             self.app.status_destination = None
             self.app.status_smpc = self.app.default_smpc if use_smpc else None
@@ -228,6 +234,7 @@ class AppState:
     def broadcast_data(self, data, send_to_self=True):
         if not self.app.coordinator:
             raise RuntimeError('only the coordinator can broadcast data')
+        self.app.outgoing_lock.acquire()
         self.app.data_outgoing.append((data, False, None))
         self.app.status_destination = None
         self.app.status_smpc = None
