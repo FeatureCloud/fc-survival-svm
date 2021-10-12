@@ -405,10 +405,10 @@ class SendRequest(BlankState):
             else:
                 result: OptimizeResult = optimizer.result
                 if not result.success:  # trying to recover from failure
-                    if config.enable_smpc and split.data.get('tries', 0) > 0:
+                    parameters: Parameters = config.parameters
+                    if config.enable_smpc and split.data.get('tries', 0) > 0 and result.nit < parameters.max_iter:
                         split.data['tries'] -= 1
                         self.app.log(f'Trying to recover {split.name}')
-                        parameters: Parameters = config.parameters
                         optimizer: SteppedEventBasedNewtonCgOptimizer = SteppedEventBasedNewtonCgOptimizer(
                             x0=result.x,
                             maxiter=parameters.max_iter - result.nit
