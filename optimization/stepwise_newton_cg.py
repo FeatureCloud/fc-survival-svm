@@ -109,7 +109,7 @@ class SteppedEventBasedNewtonCgOptimizer(Optimizer):
         requests of the type `RequestHessp` should be fulfilled with a `ResolvedHessp` response."""
         pass
 
-    def __init__(self, x0: Union[NDArray[float], List[Union[float, int]]], **kwargs):
+    def __init__(self, x0: Union[NDArray[float], List[Union[float, int]]], maxiter: int = 1000, **kwargs):
         """Init instance and start minimization."""
         self._incoming: Queue[SteppedEventBasedNewtonCgOptimizer.Resolved] = Queue(maxsize=1)
         self._outgoing: Queue[SteppedEventBasedNewtonCgOptimizer.Request] = Queue(maxsize=1)
@@ -121,7 +121,7 @@ class SteppedEventBasedNewtonCgOptimizer(Optimizer):
         self._total_time = 0
         self._idle_time = 0
 
-        self._start_minimize(x0, **kwargs)
+        self._start_minimize(x0, maxiter, **kwargs)
 
     @property
     def finished(self) -> bool:
@@ -208,7 +208,7 @@ class SteppedEventBasedNewtonCgOptimizer(Optimizer):
 
         self.hessp_val = result.hessp_val
 
-    def _start_minimize(self, x0: Union[NDArray[float], List[Union[float, int]]], **kwargs):
+    def _start_minimize(self, x0: Union[NDArray[float], List[Union[float, int]]], maxiter: int, **kwargs):
         """Start minimization of the weight vector x0."""
 
         @np_cache
@@ -234,6 +234,7 @@ class SteppedEventBasedNewtonCgOptimizer(Optimizer):
                 method='newton-cg',
                 jac=_do_gradient_func,
                 hessp=_do_hess_prod,
+                options={'maxiter': maxiter}
                 **kwargs
             )
             toc = time.perf_counter()

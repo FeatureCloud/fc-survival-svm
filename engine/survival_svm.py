@@ -341,7 +341,10 @@ class InitOptimizer(BlankState):
             initial_weight = model.get_initial_w(n_features=local_n_features,
                                                  mean_time_to_event=mean_time)
 
-            optimizer: SteppedEventBasedNewtonCgOptimizer = SteppedEventBasedNewtonCgOptimizer(x0=initial_weight)
+            optimizer: SteppedEventBasedNewtonCgOptimizer = SteppedEventBasedNewtonCgOptimizer(
+                x0=initial_weight,
+                maxiter=parameters.max_iter
+            )
             split.data['optimizer'] = optimizer
 
         return super().run()
@@ -405,7 +408,11 @@ class SendRequest(BlankState):
                     if config.enable_smpc and split.data.get('tries', 0) > 0:
                         split.data['tries'] -= 1
                         self.app.log(f'Trying to recover {split.name}')
-                        optimizer: SteppedEventBasedNewtonCgOptimizer = SteppedEventBasedNewtonCgOptimizer(x0=result.x)
+                        parameters: Parameters = config.parameters
+                        optimizer: SteppedEventBasedNewtonCgOptimizer = SteppedEventBasedNewtonCgOptimizer(
+                            x0=result.x,
+                            maxiter=parameters.max_iter - result.nit
+                        )
                         requests[split.name] = optimizer.check_pending_requests()
                         split.data['optimizer'] = optimizer
                     else:
