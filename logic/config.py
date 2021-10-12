@@ -61,6 +61,7 @@ class Config:
 
         self.enable_smpc = True
         self.min_samples = self.DEFAULT_MIN_SAMPLES
+        self.tries_recover = 3
 
     @classmethod
     def from_file(cls, yml_file_path: str):

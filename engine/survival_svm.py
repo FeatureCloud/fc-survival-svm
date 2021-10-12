@@ -180,6 +180,9 @@ class InitSplitManager(BlankState):
         self.app.internal['split_manager'] = split_manager
         self.app.log(self.app.internal.get('split_manager'), level=logging.DEBUG)
 
+        for split in split_manager:
+            split.data['tries'] = config.tries_recover
+
         return super().run()
 
 
@@ -381,6 +384,8 @@ class SaveAggregatedDataAttributes(DependingOnTypeState):
 class SendRequest(BlankState):
 
     def run(self):
+        config: Config = self.app.internal.get('config')
+
         n_exchange = self.app.internal.get('round')
         self.update(message=f'Getting computation requests [{n_exchange}]')
 
@@ -395,7 +400,18 @@ class SendRequest(BlankState):
             if not optimizer.finished:
                 requests[split.name] = optimizer.check_pending_requests()
             else:
-                requests[split.name] = optimizer.result
+                result: OptimizeResult = optimizer.result
+                if not result.success:  # trying to recover from failure
+                    if config.enable_smpc and split.data.get('tries', 0) > 0:
+                        split.data['tries'] -= 1
+                        self.app.log(f'Trying to recover {split.name}')
+                        optimizer: SteppedEventBasedNewtonCgOptimizer = SteppedEventBasedNewtonCgOptimizer(x0=result.x)
+                        requests[split.name] = optimizer.check_pending_requests()
+                        split.data['optimizer'] = optimizer
+                    else:
+                        requests[split.name] = optimizer.result
+                else:
+                    requests[split.name] = optimizer.result
 
         self.app.log(requests, level=logging.DEBUG)
         self.update(message=f'Sending computation requests [{n_exchange}]')
