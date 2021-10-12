@@ -629,7 +629,7 @@ class GeneratePredictions(BlankState):
                 continue
 
             test_data_path = os.path.join(split.input_dir, config.test_filename)
-            X_test, y_test = logic.data.read_survival_data(
+            X_test, y_test = logic.data.read_survival_data_np(
                 test_data_path, sep=config.sep,
                 label_event=config.label_event, label_time_to_event=config.label_time_to_event,
                 event_truth_value=config.event_truth_value)
