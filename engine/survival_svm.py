@@ -642,7 +642,7 @@ class GeneratePredictions(BlankState):
             # add predictions to dataframe
             X_test['predicted_tte'] = predictions.tolist()
 
-            pred_output_path = os.path.join(split.replace(settings.INPUT_DIR, settings.OUTPUT_DIR), config.pred_output)
+            pred_output_path = os.path.join(split.name.replace(settings.INPUT_DIR, settings.OUTPUT_DIR), config.pred_output)
             self.app.log(f"Writing predictions to {pred_output_path}")
             X_test.to_csv(pred_output_path, sep=config.sep, index=False)
 
