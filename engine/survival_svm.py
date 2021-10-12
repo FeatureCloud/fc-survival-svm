@@ -16,11 +16,11 @@ from app.survival_svm import settings
 from app.survival_svm.settings import INPUT_DIR, CONFIG_FILE_NAME, OUTPUT_DIR
 from engine.app import AppState, STATE_RUNNING, STATE_ACTION, PARTICIPANT, COORDINATOR
 from engine.exchanged_parameters import SyncSignalClient, SyncSignalCoordinator
-from optimization.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
 from logic.config import Config, Parameters
 from logic.data import read_survival_data, SurvivalData
 from logic.model import Training, LocalTraining
 from logic.splits import SplitManager
+from optimization.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
 
 jsonpickle_numpy.register_handlers()
 
@@ -617,7 +617,8 @@ class WriteResult(BlankState):
                     },
                     "training_data": {
                         "split": split.name,
-                        "local_file": os.path.join(split.input_dir, config.train_filename).replace(settings.INPUT_DIR, '.'),
+                        "local_file": os.path.join(
+                            split.input_dir, config.train_filename).replace(settings.INPUT_DIR, '.'),
                         "label_survival_time": config.label_time_to_event,
                         "label_event": config.label_event,
                         "event_truth_value": config.event_truth_value,
@@ -665,7 +666,8 @@ class GeneratePredictions(BlankState):
             # add predictions to dataframe
             X_test['predicted_tte'] = predictions.tolist()
 
-            pred_output_path = os.path.join(split.name.replace(settings.INPUT_DIR, settings.OUTPUT_DIR), config.pred_output)
+            pred_output_path = os.path.join(split.name.replace(settings.INPUT_DIR, settings.OUTPUT_DIR),
+                                            config.pred_output)
             self.app.log(f"Writing predictions to {pred_output_path}")
             X_test.to_csv(pred_output_path, sep=config.sep, index=False)
 
