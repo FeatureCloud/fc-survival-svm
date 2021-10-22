@@ -590,7 +590,7 @@ class WriteResult(BlankState):
             metadata = {
                 "model": {
                     "name": "FederatedPureRegressionSurvivalSVM",
-                    "version": "v0.2.0-alpha",
+                    "version": "v1.0.0-alpha",
                     "privacy": privacy,
                     "training_parameters": {
                         "alpha": sksurv_obj.alpha,
