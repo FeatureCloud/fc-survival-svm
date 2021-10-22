@@ -33,8 +33,10 @@ class SplitManager:
         if self.mode.value == SplitMode.DIRECTORY.value:
             cv_directory: str = os.path.join(INPUT_DIR, directory_name)
             self.splits = [f.path for f in os.scandir(cv_directory) if f.is_dir()]  # noqa
+            print(cv_directory)
+            print(self.splits)
         else:
-            self.splits[INPUT_DIR] = None
+            self.splits.append(INPUT_DIR)
 
         self._create_output_directories()
         self._create_data()

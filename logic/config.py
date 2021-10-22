@@ -102,3 +102,44 @@ class Config:
                     logging.warning(f'Enforcing safe value of {cls.DEFAULT_MIN_SAMPLES} for minimum number of samples')
 
         return config
+
+    @classmethod
+    def from_web(cls, form, is_coordinator):
+        config = cls()
+
+        config.train_filename = form.get('train_filename')
+        config.test_filename = form.get('test_filename')
+
+        config.model_output = form.get('model_output')
+        config.pred_output = form.get('pred_output')
+        config.meta_output = form.get('meta_output', 'meta.yml')  # default value
+        config.train_output = form.get('train_output', config.train_filename)  # default value
+        config.test_output = form.get('test_output', config.test_filename)  # default value
+
+        config.sep = form.get('sep')
+        config.label_time_to_event = form.get('label_time_to_event')
+        config.label_event = form.get('label_event')
+        if form.get('event_truth_value') != "":
+            config.event_truth_value = form.get('event_truth_value', True)  # default value
+        else:
+            config.event_truth_value = True  # default value
+
+        if is_coordinator:
+            config.parameters.alpha = int(form.get('alpha'))
+            config.parameters.fit_intercept = form.get('fit_intercept')
+            config.parameters.max_iter = int(form.get('max_iter'))
+            config.parameters._tries_recover = int(form.get('_tries_recover', 3))
+
+        config.mode = SplitMode.from_str(form.get('mode'))
+        config.dir = form.get('dir')
+
+        config.enable_smpc = form.get('enable_smpc', True)  # default value
+        requested_min_samples = form.get('min_samples')
+        if requested_min_samples is not None:
+            requested_min_samples = int(requested_min_samples)
+            if requested_min_samples > cls.DEFAULT_MIN_SAMPLES:
+                config.min_samples = requested_min_samples
+            else:
+                logging.warning(f'Enforcing safe value of {cls.DEFAULT_MIN_SAMPLES} for minimum number of samples')
+
+        return config

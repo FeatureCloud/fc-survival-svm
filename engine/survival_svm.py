@@ -121,7 +121,7 @@ class ConfigFileState(DependingOnTypeState):
 
 class ConfigWebState(DependingOnTypeState):
 
-    def __init__(self, next_state_participant, next_state_coordinator, recheck_period=10):
+    def __init__(self, next_state_participant, next_state_coordinator, recheck_period=0.5):
         super().__init__(next_state_participant, next_state_coordinator)
         self.recheck_period = recheck_period
 
@@ -132,7 +132,6 @@ class ConfigWebState(DependingOnTypeState):
             state=STATE_ACTION
         )
         while self.app.internal.get('config') is None:
-            # TODO: Allow setting config at frontend
             sleep(self.recheck_period)
 
         return super().run()
@@ -157,7 +156,7 @@ class ReceiveConfigState(BlankState):
 
     def run(self):
         self.update(message='Receiving shared config', progress=0.05)
-        config = self.app.internal.get('config')
+        config: Config = self.app.internal.get('config')
 
         shared_config: Dict = self.await_data()
         shared_config = jsonpickle.decode(shared_config)

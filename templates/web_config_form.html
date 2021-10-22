@@ -1,0 +1,181 @@
+<!doctype html>
+<html>
+<head>
+    <title>Survival SVM</title>
+    <meta name="description" content="Our first page">
+    <meta name="keywords" content="html tutorial template">
+    <link rel="stylesheet" href="static/bulma_0.9.3.min.css">
+    <link rel="icon" href="static/img/fc.ico">
+</head>
+<body>
+<div class="main-wrapper">
+    <main>
+        <section class="hero is-link is-small">
+            <div class="hero-body">
+                <div class="container is-fluid">
+                    <section class="section" style="padding: 1rem 1rem;">
+                        <h1 class="title">
+                            Federated Survival SVM
+                        </h1>
+                    </section>
+                </div>
+            </div>
+        </section>
+
+        <div class="container is-fluid mt-3 mb-3">
+            <h1 class="subtitle">
+                {% if is_coordinator %}
+                Configuration (Coordinator)
+                {% else %}
+                Configuration (Client)
+                {% endif %}
+            </h1>
+        </div>
+
+        <div class="container is-fluid">
+            <form action="web_config_apply" method="post" autocomplete="off">
+                <br>Input
+
+                <div class="field">
+                    <label class="label">Filename with training data</label>
+                    <div class="control">
+                        <input name="train_filename" class="input" type="text" placeholder="train.csv"
+                               value="train.csv">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Filename with test data</label>
+                    <div class="control">
+                        <input name="test_filename" class="input" type="text" placeholder="test.csv" value="test.csv">
+                    </div>
+                </div>
+
+                <div class="field">
+                    <label class="label">Separator for csv files</label>
+                    <div class="control">
+                        <input name="sep" class="input" type="text" placeholder="," value=",">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Label for time-to-event field in training and test files</label>
+                    <div class="control">
+                        <input name="label_time_to_event" class="input" type="text" placeholder="tte" value="tte">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Label for event indicator in training and test files</label>
+                    <div class="control">
+                        <input name="label_event" class="input" type="text" placeholder="event" value="event">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Value when event occurred (leave empty for <code>True</code>)</label>
+                    <div class="control">
+                        <input name="event_truth_value" class="input" type="text" placeholder="" value="">
+                    </div>
+                </div>
+
+                <br><br>Output
+
+                <div class="field">
+                    <label class="label">Filename for model output</label>
+                    <div class="control">
+                        <input name="model_output" class="input" type="text" placeholder="model.pkl" value="model.pkl">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Filename for meta output</label>
+                    <div class="control">
+                        <input name="meta_output" class="input" type="text" placeholder="meta.yml" value="meta.yml">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Filename for predictions generated on testing data</label>
+                    <div class="control">
+                        <input name="pred_output" class="input" type="text" placeholder="pred.csv" value="pred.csv">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Filename for training data output</label>
+                    <div class="control">
+                        <input name="train_output" class="input" type="text" placeholder="train.csv" value="train.csv">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Filename for testing data output</label>
+                    <div class="control">
+                        <input name="test_output" class="input" type="text" placeholder="test.csv" value="test.csv">
+                    </div>
+                </div>
+
+                <br><br>Mode
+
+                <div class="field">
+                    <label class="label">Split Mode</label>
+                    <select class="select" name="mode">
+                        <option value="directory">Directory</option>
+                        <option value="file" selected>File</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label class="label">Split Dir</label>
+                    <div class="control">
+                        <input class="input" type="text" name="dir" value=".">
+                    </div>
+                </div>
+
+                {% if is_coordinator %}
+                <br><br>Parameters
+                <div class="field">
+                    <label class="label">alpha (between 0 and 1)</label>
+                    <div class="control">
+                        <input class="input" type="text" name="alpha" placeholder="1" value="1">
+                    </div>
+                </div>
+                <label class="label">Intercept</label>
+                <label class="checkbox">
+                    <input type="checkbox" name="fit_intercept">
+                    Fit intercept
+                </label>
+                <div class="field">
+                    <label class="label">max_iterations</label>
+                    <div class="control">
+                        <input class="input" type="text" name="max_iter" placeholder="1000" value="1000">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">tries_recover</label>
+                    <div class="control">
+                        <input class="input" type="text" name="_tries_recover" placeholder="3" value="3">
+                    </div>
+                </div>
+                {% else %}
+                <br>Parameters will be controlled by the coordinator.<br>
+                {% endif %}
+
+                <br><br>Security<br>
+                <label class="label">SMPC</label>
+                <label class="checkbox">
+                    <input type="checkbox" name="enable_smpc" checked>
+                    Use SMPC / enhanced privacy (Use the same value as the coordinator!)
+                </label>
+                <div class="field">
+                    <label class="label">Minimal samples per split (this cannot be set to a value lower than {{ min_samples }})</label>
+                    <div class="control">
+                        <input class="input" type="text" name="min_samples" placeholder="{{ min_samples }}" value="{{ min_samples }}">
+                    </div>
+                </div>
+
+                <br><br>
+                <div class="field is-grouped">
+                    <div class="control">
+                        <button class="button is-link">Submit</button>
+                    </div>
+                </div>
+                <br>
+            </form>
+        </div>
+    </main>
+</div>
+</body>
+</html>

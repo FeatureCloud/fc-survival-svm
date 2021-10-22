@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+<head>
+    <title>Survival SVM</title>
+    <meta name="description" content="Our first page">
+    <meta name="keywords" content="html tutorial template">
+    <link rel="stylesheet" href="static/bulma_0.9.3.min.css">
+    <link rel="icon" href="static/img/fc.ico">
+</head>
+<body>
+<div class="main-wrapper">
+    <main>
+        <section class="hero is-link is-small">
+            <div class="hero-body">
+                <div class="container is-fluid">
+                    <section class="section" style="padding: 1rem 1rem;">
+                        <h1 class="title">
+                            Federated Survival SVM
+                        </h1>
+                    </section>
+                </div>
+            </div>
+        </section>
+
+        <div class="container is-fluid mt-3 mb-3">
+            <h1 class="subtitle">
+                Iteration Round: <code>{{ round }}</code>
+            </h1>
+        </div>
+
+        <div class="container is-fluid">
+            <div class="row">
+                <div class="columns">
+                    {% for split in split_manager %}
+                    <div class="column is-one-third">
+                        <div class="card mt-3" style="margin-bottom: 15px;">
+                            <header class="card-header">
+                                <h2 class="card-header-title">{{ split.name }}</h2>
+                            </header>
+                            <div class="card-content">
+                                <b>Data</b><br>
+                                number of samples: {{ split.data.get('n_samples') }}
+                                <br>
+                                number of censored samples: {{ split.data.get('n_censored') }}
+                                <br>
+                                opt-out: {{ split.data.get('opt_out') }}
+                                <br>
+                                <b>Optimization</b><br>
+                                Optimization finished: {{ split.data.get('opt_finished') }}
+                                <br>
+                                {% if split.data.get('opt_result') %}
+                                {{ split.data.get('opt_result').message }}
+                                {% endif %}
+                                <br>
+                            </div>
+                        </div>
+                    </div>
+                    {% if loop.index0 % 3 == 2 %}
+                </div>
+            </div>
+            <div class="row">
+                <div class="columns">
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+</body>
+</html>

@@ -1,10 +1,13 @@
+from time import sleep
+
 import bottle
-from bottle import Bottle
+import jinja2
 
 from app import app
+from logic.config import Config
 from logic.splits import SplitManager
 
-web_server = Bottle()
+web_server = bottle.Bottle()
 
 
 # CAREFUL: Do NOT perform any computation-related tasks inside these methods, nor inside functions called from them!
@@ -20,72 +23,49 @@ def index():
         bottle.redirect('/web_config')
     elif app.current_state.name in ['opt_send_requests', 'opt_listen', 'opt_set_response']:
         bottle.redirect('/during_training')
+    elif app.current_state.name in ['write_results', 'generate_results']:
+        bottle.redirect('/during_training')
     return f'State: {app.current_state.name}'
 
 
 @web_server.route('/web_config')
 def web_config():
-    print(f'[WEB] GET /')
+    print(f'[WEB] GET /web_config')
 
-    return f'NotImplemented'
+    is_coordinator = app.coordinator
+    min_samples = Config.DEFAULT_MIN_SAMPLES
+
+    templateLoader = jinja2.FileSystemLoader(searchpath="/app/templates")
+    templateEnv = jinja2.Environment(loader=templateLoader)
+    template = templateEnv.get_template('web_config_form.html')
+    html = template.render(is_coordinator=is_coordinator, min_samples=min_samples)
+    return html
+
+
+@web_server.post('/web_config_apply')
+def web_config_apply():
+    print(f'[WEB] GET /web_config_apply')
+
+    web_config = bottle.request.forms.decode()
+
+    is_coordinator = app.coordinator
+
+    config: Config = Config.from_web(web_config, is_coordinator)
+    app.internal['config'] = config
+
+    sleep(3)
+
+    return bottle.redirect('/')
 
 
 @web_server.route('/during_training')
 def during_training():
-    print(f'[WEB] GET /')
+    print(f'[WEB] GET /during_training')
 
     split_manager: SplitManager = app.internal.get('split_manager')
 
-    return f"""
-    <!doctype html>
-    <html>
-    <head>
-    <title>Survival SVM</title>
-    <meta name="description" content="Our first page">
-    <meta name="keywords" content="html tutorial template">
-    <link rel="stylesheet" href="static/bulma_0.9.3.min.css">
-    </head>
-    <body>
-        <div class="main-wrapper">
-            <main>
-                <section class="hero is-link is-small">
-                    <div class="hero-body">
-                        <div class="container is-fluid">
-                            <section class="section" style="padding: 1rem 1rem;">
-                                <h1 class="title">
-                                    Federated Survival SVM
-                                </h1>
-                            </section>
-                        </div>
-                    </div>
-                </section>
-                
-                <div class="row">
-
-                    <div class="columns">
-                      <div class="column is-one-third">
-                      
-                          <div class="card" style="margin-bottom: 15px;">
-                            <header class="card-header">
-                                <h2 class="card-header-title">Global Options</h2>
-                            </header>
-                            <div class="card-content">
-                                Text
-                            </div>
-                          </div>
-                      
-                      </div>
-                      <div class="column">Auto</div>
-                      <div class="column">Auto</div>
-                    </div>
-                
-                </div>
-
-            </main>
-        </div>
-    </body>
-    </html>
-    """
-    #
-    # return f'State: {app.current_state.name}\n' \
-    #        f'Splits: {str(split_manager.data)}'
+    templateLoader = jinja2.FileSystemLoader(searchpath="/app/templates")
+    templateEnv = jinja2.Environment(loader=templateLoader)
+    template = templateEnv.get_template('info.html')
+    html = template.render(round=app.internal.get('round'), split_manager=split_manager)
+    return html
