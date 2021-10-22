@@ -1,0 +1,22 @@
+fc_survival_svm:
+  privacy:
+    enable_smpc: True
+  input:
+    train: "train.csv"
+    test: "test.csv"
+  output:
+    model: "model.pickle"
+    pred: "pred.csv"
+    test: "test.csv"
+  format:
+    sep: ","
+    label_survival_time: "time"
+    label_event: "status"
+    event_truth_value: 1  # optional, default=True; value of an entry in the event column when a event occurred
+  split:
+    mode: directory  # directory if cross validation was used before, else file
+    dir: cv  # data if cross validation app was used before, else .
+  svm:
+    alpha: 1  # regularization parameter
+    fit_intercept: True  # whether to fit an intercept or not
+    max_iterations: 1000  # maximum number of iterations
