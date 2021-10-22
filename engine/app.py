@@ -100,7 +100,7 @@ class App:
 
     def handle_incoming(self, data, client):
         # This method is called when new data arrives
-        self.log(f"HANDLE INCOMING")
+        self.log(f"HANDLE INCOMING", level=logging.DEBUG)
         self.data_incoming.append((data.read(), client))
 
     def handle_outgoing(self):
@@ -117,7 +117,7 @@ class App:
             self.status_available = True
             self.status_smpc = self.default_smpc if self.data_outgoing[0][1] else None
             self.status_destination = self.data_outgoing[0][2]
-        self.log(f'OUTGOING: {data}')
+        self.log(f'OUTGOING: {data}', level=logging.DEBUG)
         self.outgoing_lock.release()
         return data[0]
 
