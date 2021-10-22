@@ -163,7 +163,10 @@ class Training(LocalTraining):
     def _apply_hessp_update(self, aggregated_hessp_update):
         self._last_request: SteppedEventBasedNewtonCgOptimizer.RequestHessp
         s_bias, s_feat = self._split_coefficients(self._last_request.psupi)
-        return np.hstack([0, s_feat]) + aggregated_hessp_update
+        if self.fit_intercept:
+            return np.hstack([0, s_feat]) + aggregated_hessp_update
+        else:
+            return s_feat + aggregated_hessp_update
 
     def aggregated_hessp(self, hessp_update) -> SteppedEventBasedNewtonCgOptimizer.ResolvedHessp:
         hess_p = self._apply_hessp_update(np.array(hessp_update))
@@ -176,7 +179,10 @@ class Training(LocalTraining):
 
     def _calc_g_val(self, aggregated_gradient_update):
         bias, beta = self._split_coefficients(self.w)
-        return np.hstack([0, beta]) + aggregated_gradient_update
+        if self.fit_intercept:
+            return np.hstack([0, beta]) + aggregated_gradient_update
+        else:
+            return beta + aggregated_gradient_update
 
     def aggregate_f_val_and_g_val(self, zeta_sq_sum,
                                   gradient_update) -> SteppedEventBasedNewtonCgOptimizer.ResolvedWDependent:
