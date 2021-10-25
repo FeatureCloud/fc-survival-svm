@@ -113,7 +113,7 @@ class SendRequestStep(SendRequest):
 
 @app_state(app, 'opt_listen',
            next_state_participant='opt_listen', next_state_coordinator='opt_set_response',
-           next_state_opt_finished='generate_results')
+           next_state_opt_finished='generate_predictions')
 class ListenStep(ListenRequest):
     pass
 
@@ -124,7 +124,7 @@ class SetResponseStep(SetResponse):
     pass
 
 
-@app_state(app, 'generate_results',
+@app_state(app, 'generate_predictions',
            next_state='write_results')
 class GeneratePredictionsState(GeneratePredictions):
     pass
