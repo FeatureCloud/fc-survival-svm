@@ -2,6 +2,7 @@ import logging
 import os
 import pickle
 import shutil
+import time
 from time import sleep
 from typing import Type, Dict, Optional, List, Union, Tuple
 
@@ -109,6 +110,9 @@ class ConfigFileState(DependingOnTypeState):
             progress=0.03,
             state=STATE_RUNNING
         )
+
+        self.app.internal['_tic_config'] = time.perf_counter()
+
         config_file_path: str = os.path.join(INPUT_DIR, CONFIG_FILE_NAME)
         config: Config = Config.from_file(config_file_path)
         self.app.internal['config'] = config
@@ -182,6 +186,9 @@ class InitSplitManager(BlankState):
         for split in split_manager:
             split.data['tries'] = config.tries_recover
 
+        toc = time.perf_counter()
+        self.app.internal['timing_config'] = toc - self.app.internal['_tic_config']
+
         return super().run()
 
 
@@ -189,6 +196,9 @@ class ReadDataState(BlankState):
 
     def run(self):
         self.update(message='Read data', progress=0.07)
+
+        tic = time.perf_counter()
+
         config: Config = self.app.internal.get('config')
         parameters: Parameters = config.parameters
         split_manager = self.app.internal.get('split_manager')
@@ -228,6 +238,9 @@ class ReadDataState(BlankState):
                               max_iter=parameters.max_iter)
             split.data['model'] = model
 
+        toc = time.perf_counter()
+        self.app.internal['timing_read_data'] = toc - tic
+
         return super().run()
 
 
@@ -235,6 +248,8 @@ class PreprocessDataState(BlankState):
 
     def run(self):
         self.update(message='Log-transform survival times', progress=0.08)
+
+        tic = time.perf_counter()
 
         split_manager = self.app.internal.get('split_manager')
         for split in split_manager:
@@ -247,6 +262,9 @@ class PreprocessDataState(BlankState):
                     self.app.log(str(e), level=logging.WARNING)
                     split.data['opt_out'] = True
                     split.data['opt_out_message'] = str(e)
+
+        toc = time.perf_counter()
+        self.app.internal['timing_preprocessing'] = toc - tic
 
         return super().run()
 
@@ -534,6 +552,9 @@ class GeneratePredictions(BlankState):
 
     def run(self):
         self.update(message=f'Generate predictions on test data', progress=0.95)
+
+        tic = time.perf_counter()
+
         config: Config = self.app.internal.get('config')
 
         split_manager: SplitManager = self.app.internal.get('split_manager')
@@ -569,6 +590,9 @@ class GeneratePredictions(BlankState):
                                             config.pred_output)
             self.app.log(f"Writing predictions to {pred_output_path}")
             X_test.to_csv(pred_output_path, sep=config.sep, index=False)
+
+        toc = time.perf_counter()
+        self.app.internal['timing_generate_predictions'] = toc - tic
 
         return super().run()
 
@@ -620,11 +644,16 @@ class WriteResult(BlankState):
             # unpack timings
             opt_times = opt_result.timings['py/seq']  # TODO. Why is this a dict? Failed JSON parsing?
             timings = {
+                "total_until_meta_file_write": time.perf_counter() - self.app.internal['_tic_total'],
+                "config": self.app.internal['timing_config'],
+                "read_data": self.app.internal['timing_read_data'],
+                "preprocessing": self.app.internal['timing_preprocessing'],
                 "optimizer": {
                     "calculation_time": opt_times[0],
                     "total_time": opt_times[1],
                     "idle_time": opt_times[2],
-                }
+                },
+                "generate_predictions": self.app.internal['timing_generate_predictions'],
             }
 
             # privacy

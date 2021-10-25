@@ -1,6 +1,7 @@
 import datetime
 import logging
 import threading
+import time
 import traceback
 from time import sleep
 
@@ -80,6 +81,7 @@ class App:
             self.status_finished = True
 
     def run(self):
+        self.internal['_tic_total'] = time.perf_counter()
         while True:
             self.log(f'state: {self.current_state.name}')
             transition = self.current_state.run()
