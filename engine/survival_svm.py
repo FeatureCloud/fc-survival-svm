@@ -530,10 +530,53 @@ class SetResponse(BlankState):
         return super().run()
 
 
+class GeneratePredictions(BlankState):
+
+    def run(self):
+        self.update(message=f'Generate predictions on test data', progress=0.95)
+        config: Config = self.app.internal.get('config')
+
+        split_manager: SplitManager = self.app.internal.get('split_manager')
+        for split in split_manager:
+            model: LocalTraining = split.data.get('model')
+            opt_result: Optional[OptimizeResult] = split.data.get('opt_result')
+
+            if opt_result is None:
+                continue
+
+            sksurv_obj: FastSurvivalSVM = model.to_sksurv(opt_result)
+            split.data['svm'] = sksurv_obj
+            svm: FastSurvivalSVM = sksurv_obj
+
+            if svm is None:
+                continue
+
+            test_data_path = os.path.join(split.input_dir, config.test_filename)
+            X_test, y_test = logic.data.read_survival_data_np(
+                test_data_path, sep=config.sep,
+                label_event=config.label_event, label_time_to_event=config.label_time_to_event,
+                event_truth_value=config.event_truth_value)
+
+            predictions = svm.predict(X_test)
+
+            # re-add tte and event column
+            X_test[config.label_time_to_event] = y_test['event_indicator']
+            X_test[config.label_event] = y_test['time_to_event']
+            # add predictions to dataframe
+            X_test['predicted_tte'] = predictions.tolist()
+
+            pred_output_path = os.path.join(split.name.replace(settings.INPUT_DIR, settings.OUTPUT_DIR),
+                                            config.pred_output)
+            self.app.log(f"Writing predictions to {pred_output_path}")
+            X_test.to_csv(pred_output_path, sep=config.sep, index=False)
+
+        return super().run()
+
+
 class WriteResult(BlankState):
 
     def run(self):
-        self.update(message=f'Optimization finished. Writing results.', progress=0.95)
+        self.update(message=f'Optimization finished. Writing results.', progress=0.975)
         config: Config = self.app.internal.get('config')
 
         # copy config file to outputs
@@ -548,14 +591,14 @@ class WriteResult(BlankState):
             shutil.copyfile(os.path.join(split.input_dir, config.test_filename),
                             os.path.join(split.output_dir, config.test_output))
 
+            # get model
             model: LocalTraining = split.data.get('model')
             opt_result: Optional[OptimizeResult] = split.data.get('opt_result')
 
             if opt_result is None:
                 continue
 
-            sksurv_obj: FastSurvivalSVM = model.to_sksurv(opt_result)
-            split.data['svm'] = sksurv_obj
+            sksurv_obj: FastSurvivalSVM = split.data.get('svm')
 
             # write pickled model
             pickle_output_path = os.path.join(split.output_dir, config.model_output)
@@ -635,40 +678,4 @@ class WriteResult(BlankState):
             with open(meta_output_path, "w") as fh:
                 yaml.dump(metadata, fh)
 
-        return super().run()
-
-
-class GeneratePredictions(BlankState):
-
-    def run(self):
-        self.update(message=f'Generate predictions on test data', progress=0.975)
-        config: Config = self.app.internal.get('config')
-
-        split_manager: SplitManager = self.app.internal.get('split_manager')
-        for split in split_manager:
-            svm: FastSurvivalSVM = split.data.get('svm')
-
-            if svm is None:
-                continue
-
-            test_data_path = os.path.join(split.input_dir, config.test_filename)
-            X_test, y_test = logic.data.read_survival_data_np(
-                test_data_path, sep=config.sep,
-                label_event=config.label_event, label_time_to_event=config.label_time_to_event,
-                event_truth_value=config.event_truth_value)
-
-            predictions = svm.predict(X_test)
-
-            # re-add tte and event column
-            X_test[config.label_time_to_event] = y_test['event_indicator']
-            X_test[config.label_event] = y_test['time_to_event']
-            # add predictions to dataframe
-            X_test['predicted_tte'] = predictions.tolist()
-
-            pred_output_path = os.path.join(split.name.replace(settings.INPUT_DIR, settings.OUTPUT_DIR),
-                                            config.pred_output)
-            self.app.log(f"Writing predictions to {pred_output_path}")
-            X_test.to_csv(pred_output_path, sep=config.sep, index=False)
-
-        self.update(message=f'Finished', progress=1)
         return super().run()
