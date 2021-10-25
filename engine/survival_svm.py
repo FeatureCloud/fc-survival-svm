@@ -672,31 +672,3 @@ class GeneratePredictions(BlankState):
 
         self.update(message=f'Finished', progress=1)
         return super().run()
-
-
-class SyncStep(BlankState):
-
-    def __init__(self, next_state, sync_signal_cls: Type[SyncSignalClient]):
-        super().__init__(next_state)
-        self.sync_signal_client_cls: Type[SyncSignalClient] = sync_signal_cls
-        self.sync_signal_coordinator_cls: Type[SyncSignalCoordinator] = SyncSignalCoordinator
-
-    def run(self):
-        self.update(message=f'Syncing')
-        self.send_data_to_coordinator(jsonpickle.encode(self.sync_signal_client_cls()).encode())
-
-        if self.app.coordinator:
-            self.update(message=f'Waiting for clients to send sync signal')
-            config_finished_signals = self.gather_data()
-            for config_finished_signal in config_finished_signals:
-                signal_json, from_participant = config_finished_signal
-                if not isinstance(jsonpickle.decode(signal_json), self.sync_signal_client_cls):
-                    RuntimeError(f'Sync unsuccessful. Client {from_participant} sent an unexpected signal.')
-            self.broadcast_data(jsonpickle.encode(self.sync_signal_coordinator_cls()).encode())
-        self.update(message=f'Waiting for sync signal')
-
-        sync_signal = self.await_data()
-        self.app.log(sync_signal)
-        if not isinstance(jsonpickle.decode(sync_signal), self.sync_signal_coordinator_cls):
-            RuntimeError('Sync unsuccessful')
-        return super().run()
