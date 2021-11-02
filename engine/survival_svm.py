@@ -442,11 +442,13 @@ class SendRequest(BlankState):
                         self.app.log(f'get timings')
                         opt_times = result.timings
                         self.app.log(opt_times)
+                        opt_times_list = [opt_times[0], opt_times[1], opt_times[2]]
+                        self.app.log(opt_times_list)
                         old_times = split.data.get('timings_from_recovered_runs', (0, 0, 0))
-                        opt_times[0] += old_times[0]
-                        opt_times[1] += old_times[1]
-                        opt_times[2] += old_times[2]
-                        split.data['timings_from_recovered_runs'] = opt_times
+                        opt_times_list[0] += old_times[0]
+                        opt_times_list[1] += old_times[1]
+                        opt_times_list[2] += old_times[2]
+                        split.data['timings_from_recovered_runs'] = opt_times_list
                         self.app.log(f'after get timings')
 
                         self.app.log(f'recover check pending')
