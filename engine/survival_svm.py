@@ -431,7 +431,7 @@ class SendRequest(BlankState):
                             maxiter=parameters.max_iter - result.nit
                         )
 
-                        opt_times = result.timings
+                        opt_times = result.timings['py/seq']  # TODO. Why is this a dict? Failed JSON parsing?
                         old_times = split.data.get('timings_from_recovered_runs', (0, 0, 0))
                         opt_times[0] += old_times[0]
                         opt_times[1] += old_times[1]
