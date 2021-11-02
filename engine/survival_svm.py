@@ -430,6 +430,14 @@ class SendRequest(BlankState):
                             x0=result.x,
                             maxiter=parameters.max_iter - result.nit
                         )
+
+                        opt_times = result.timings
+                        old_times = split.data.get('timings_from_recovered_runs', (0, 0, 0))
+                        opt_times[0] += old_times[0]
+                        opt_times[1] += old_times[1]
+                        opt_times[2] += old_times[2]
+                        split.data['timings_from_recovered_runs'] = opt_times
+
                         requests[split.name] = optimizer.check_pending_requests()
                         split.data['optimizer'] = optimizer
                     else:
@@ -643,15 +651,16 @@ class WriteResult(BlankState):
 
             # unpack timings
             opt_times = opt_result.timings['py/seq']  # TODO. Why is this a dict? Failed JSON parsing?
+            timings_from_recovered_runs = split.data.get('timings_from_recovered_runs', (0, 0, 0))
             timings = {
                 "total_until_meta_file_write": time.perf_counter() - self.app.internal['_tic_total'],
                 "config": self.app.internal['timing_config'],
                 "read_data": self.app.internal['timing_read_data'],
                 "preprocessing": self.app.internal['timing_preprocessing'],
                 "optimizer": {
-                    "calculation_time": opt_times[0],
-                    "total_time": opt_times[1],
-                    "idle_time": opt_times[2],
+                    "calculation_time": opt_times[0] + timings_from_recovered_runs[0],
+                    "total_time": opt_times[1] + timings_from_recovered_runs[1],
+                    "idle_time": opt_times[2] + timings_from_recovered_runs[2],
                 },
                 "generate_predictions": self.app.internal['timing_generate_predictions'],
             }
