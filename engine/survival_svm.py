@@ -440,7 +440,8 @@ class SendRequest(BlankState):
                         )
 
                         self.app.log(f'get timings')
-                        opt_times = result.timings['py/seq']  # TODO. Why is this a dict? Failed JSON parsing?
+                        opt_times = result.timings
+                        self.app.log(opt_times)
                         old_times = split.data.get('timings_from_recovered_runs', (0, 0, 0))
                         opt_times[0] += old_times[0]
                         opt_times[1] += old_times[1]
