@@ -430,7 +430,7 @@ class SendRequest(BlankState):
                 if not result.success:  # trying to recover from failure
                     self.app.log(f'failure')
                     parameters: Parameters = config.parameters
-                    if config.enable_smpc and split.data.get('tries', 0) > 0 and result.nit < parameters.max_iter:
+                    if split.data.get('tries', 0) > 0 and result.nit < parameters.max_iter:
                         self.app.log(f'recover')
                         split.data['tries'] -= 1
                         self.app.log(f'Trying to recover {split.name}')
