@@ -413,17 +413,25 @@ class SendRequest(BlankState):
 
         split_manager: SplitManager = self.app.internal.get('split_manager')
         for split in split_manager:
+            self.app.log(split)
             if split.data.get('opt_finished'):
+                self.app.log(f'continue')
                 continue
 
             optimizer: SteppedEventBasedNewtonCgOptimizer = split.data['optimizer']
             if not optimizer.finished:
+                self.app.log(f'check pending')
                 requests[split.name] = optimizer.check_pending_requests()
+                self.app.log(f'after check pending')
             else:
+                self.app.log(f'result')
                 result: OptimizeResult = optimizer.result
+                self.app.log(f'{result}')
                 if not result.success:  # trying to recover from failure
+                    self.app.log(f'failure')
                     parameters: Parameters = config.parameters
                     if config.enable_smpc and split.data.get('tries', 0) > 0 and result.nit < parameters.max_iter:
+                        self.app.log(f'recover')
                         split.data['tries'] -= 1
                         self.app.log(f'Trying to recover {split.name}')
                         optimizer: SteppedEventBasedNewtonCgOptimizer = SteppedEventBasedNewtonCgOptimizer(
@@ -431,18 +439,24 @@ class SendRequest(BlankState):
                             maxiter=parameters.max_iter - result.nit
                         )
 
+                        self.app.log(f'get timings')
                         opt_times = result.timings['py/seq']  # TODO. Why is this a dict? Failed JSON parsing?
                         old_times = split.data.get('timings_from_recovered_runs', (0, 0, 0))
                         opt_times[0] += old_times[0]
                         opt_times[1] += old_times[1]
                         opt_times[2] += old_times[2]
                         split.data['timings_from_recovered_runs'] = opt_times
+                        self.app.log(f'after get timings')
 
+                        self.app.log(f'recover check pending')
                         requests[split.name] = optimizer.check_pending_requests()
                         split.data['optimizer'] = optimizer
+                        self.app.log(f'after recover check pending')
                     else:
+                        self.app.log(f'else01')
                         requests[split.name] = optimizer.result
                 else:
+                    self.app.log(f'else02')
                     requests[split.name] = optimizer.result
 
         self.app.log(requests, level=logging.DEBUG)
