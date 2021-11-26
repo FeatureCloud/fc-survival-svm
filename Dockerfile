@@ -8,6 +8,7 @@ COPY server_config/supervisord.conf /supervisord.conf
 COPY server_config/nginx /etc/nginx/sites-available/default
 COPY server_config/docker-entrypoint.sh /entrypoint.sh
 
+RUN conda config --append channels conda-forge
 RUN conda install -y -c sebp scikit-survival
 
 COPY requirements.txt /app/requirements.txt
