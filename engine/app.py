@@ -43,7 +43,7 @@ class App:
         self.data_outgoing = []
         self.outgoing_lock: threading.Lock = threading.Lock()
 
-        self.default_smpc = {'operation': 'add', 'serialization': 'json', 'shards': 0, 'range': 1_000_000_000}
+        self.default_smpc = {'operation': 'add', 'serialization': 'json', 'shards': 0, 'exponent': 8}
 
         self.current_state: AppState or None = None
         self.states: Dict[str, AppState] = {}
