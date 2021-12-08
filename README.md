@@ -74,3 +74,7 @@ fc_survival_svm:
     fit_intercept: False  # whether to fit an intercept or not
     max_iterations: 1000  # maximum number of iterations
 ```
+
+## Privacy
+- Exchanges the model parameters of the SVM
+- Uses SMPC to exchange data - No local parameters are visible, only aggregations
