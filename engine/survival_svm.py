@@ -15,7 +15,7 @@ from sksurv.svm import FastSurvivalSVM
 import logic.data
 from app.survival_svm import settings
 from app.survival_svm.settings import INPUT_DIR, CONFIG_FILE_NAME, OUTPUT_DIR
-from engine.app import AppState, STATE_RUNNING, STATE_ACTION, PARTICIPANT, COORDINATOR
+from engine.app import AppState, STATE_RUNNING, STATE_ACTION, STATE_ERROR, PARTICIPANT, COORDINATOR
 from engine.exchanged_parameters import SyncSignalClient, SyncSignalCoordinator
 from logic.config import Config, Parameters
 from logic.data import read_survival_data, SurvivalData
@@ -247,6 +247,19 @@ class ReadDataState(BlankState):
 class PreprocessDataState(BlankState):
 
     def run(self):
+        self.update(message='Check survival times for zero and negative timepoints', progress=0.08)
+        split_manager = self.app.internal.get('split_manager')
+        for split in split_manager:
+            if not split.data.get('opt_out'):
+                model: LocalTraining = split.data.get('model')
+
+                dropped_rows = model.data.drop_negative_and_zero_timepoints()
+                if dropped_rows > 0:
+                    self.update(
+                        message=f'Dropped {dropped_rows} samples with zero or negative timepoints in {split.name}',
+                        state=STATE_ERROR
+                    )
+
         self.update(message='Log-transform survival times', progress=0.08)
 
         tic = time.perf_counter()
