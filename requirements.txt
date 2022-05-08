@@ -7,5 +7,7 @@ pydot
 pyyaml
 
 numpy
-nptyping
+nptyping==1.4.4
 pandas
+scipy
+scikit-learn
