@@ -1,4 +1,4 @@
-FROM continuumio/miniconda3:4.10.3p0
+FROM continuumio/miniconda3:4.11.0
 
 RUN apt-get update && apt-get install -y supervisor nginx gcc
 
