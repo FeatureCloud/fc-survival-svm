@@ -53,6 +53,11 @@ class SurvivalData:
             time_to_event=time_to_event,
         )
 
+    def _drop_rows(self, rows):
+        self.survival.time_to_event = np.drop(rows)
+        self.survival.event_indicator = np.drop(rows)
+        self.features = np.drop(rows)
+
     def drop_negative_and_zero_timepoints(self) -> int:
         """
         Drop rows with a negative or zero time to prepare data for log-transformation.
@@ -65,9 +70,7 @@ class SurvivalData:
         if n_bad_rows > 0:
             logging.warning(f"Dropping {n_bad_rows} rows with negative or zero times")
             # drop rows in all arrays
-            self.survival.time_to_event = np.drop(bad_rows)
-            self.survival.event_indicator = np.drop(bad_rows)
-            self.features = np.drop(bad_rows)
+            self._drop_rows(rows=bad_rows)
         return n_bad_rows
 
     def log_transform_times(self):
