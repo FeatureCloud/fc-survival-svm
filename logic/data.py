@@ -60,7 +60,7 @@ class SurvivalData:
 
     def drop_negative_and_zero_timepoints(self) -> int:
         """
-        Drop rows with a negative or zero time to prepare data for log-transformation.
+        Drop samples with a negative or zero time to prepare data for log-transformation.
 
         :return: Number of dropped rows
         """
