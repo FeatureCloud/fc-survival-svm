@@ -257,7 +257,7 @@ class PreprocessDataState(BlankState):
                 if dropped_rows > 0:
                     self.update(
                         message=f'Dropped {dropped_rows} samples with zero or negative timepoints in {split.name}',
-                        state=STATE_ERROR
+                        state=STATE_RUNNING
                     )
 
         self.update(message='Log-transform survival times', progress=0.08)
