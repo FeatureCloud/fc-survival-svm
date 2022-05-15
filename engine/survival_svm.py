@@ -210,7 +210,7 @@ class ReadDataState(BlankState):
             training_data: SurvivalData = read_survival_data(
                 training_data_path, sep=config.sep,
                 label_event=config.label_event, label_time_to_event=config.label_time_to_event,
-                event_truth_value=config.event_truth_value)
+                event_value=config.event_value, event_censored_value=config.event_censored_value)
 
             # get some metrics about data
             n_samples = training_data.n_samples
@@ -614,7 +614,7 @@ class GeneratePredictions(BlankState):
             X_test, y_test = logic.data.read_survival_data_np(
                 test_data_path, sep=config.sep,
                 label_event=config.label_event, label_time_to_event=config.label_time_to_event,
-                event_truth_value=config.event_truth_value)
+                event_value=config.event_value, event_censored_value=config.event_censored_value)
 
             predictions = svm.predict(X_test)
 
@@ -731,7 +731,8 @@ class WriteResult(BlankState):
                             split.input_dir, config.train_filename).replace(settings.INPUT_DIR, '.'),
                         "label_survival_time": config.label_time_to_event,
                         "label_event": config.label_event,
-                        "event_truth_value": config.event_truth_value,
+                        "event_value": config.event_value,
+                        "event_censored_value": config.event_censored_value,
                         "n_samples": split.data.get('n_samples'),
                         "n_censored": split.data.get('n_censored'),
                     },
