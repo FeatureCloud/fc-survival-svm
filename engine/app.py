@@ -246,7 +246,8 @@ class AppState:
 
     def update(self, message=None, progress=None, state=None):
         if message and len(message) > 40:
-            raise RuntimeError('message is too long')
+            logging.debug(f"Truncated a long message. Original message: {message!r}")
+            message = message[:39]
         if progress is not None and (progress < 0 or progress > 1):
             raise RuntimeError('progress must be between 0 and 1')
         if state is not None and state != STATE_RUNNING and state != STATE_ERROR and state != STATE_ACTION:
