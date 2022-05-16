@@ -212,6 +212,8 @@ class ReadDataState(BlankState):
                 label_event=config.label_event, label_time_to_event=config.label_time_to_event,
                 event_truth_value=config.event_truth_value)
 
+            split.data['training_data'] = training_data
+
             # get some metrics about data
             n_samples = training_data.n_samples
             n_censored = training_data.n_censored
@@ -226,18 +228,6 @@ class ReadDataState(BlankState):
                 self.app.log(f'Number of samples is below safe limit for split {split.input_dir}. Opt-out.',
                              level=logging.WARNING)
 
-            # generate model attribute
-            if self.app.coordinator:
-                model_cls = Training
-            else:
-                model_cls = LocalTraining
-
-            model = model_cls(data=training_data,
-                              alpha=parameters.alpha,
-                              fit_intercept=parameters.fit_intercept,
-                              max_iter=parameters.max_iter)
-            split.data['model'] = model
-
         toc = time.perf_counter()
         self.app.internal['timing_read_data'] = toc - tic
 
@@ -251,9 +241,9 @@ class PreprocessDataState(BlankState):
         split_manager = self.app.internal.get('split_manager')
         for split in split_manager:
             if not split.data.get('opt_out'):
-                model: LocalTraining = split.data.get('model')
+                training_data: SurvivalData = split.data.get('training_data')
 
-                dropped_rows = model.data.drop_negative_and_zero_timepoints()
+                dropped_rows = training_data.drop_negative_and_zero_timepoints()
                 if dropped_rows > 0:
                     self.update(
                         message=f'Dropped {dropped_rows} samples with zero or negative timepoints in {split.name}',
@@ -267,10 +257,10 @@ class PreprocessDataState(BlankState):
         split_manager = self.app.internal.get('split_manager')
         for split in split_manager:
             if not split.data.get('opt_out'):
-                model: LocalTraining = split.data.get('model')
+                training_data: SurvivalData = split.data.get('training_data')
 
                 try:
-                    model.data.log_transform_times()
+                    training_data.log_transform_times()
                 except ValueError as e:
                     self.app.log(str(e), level=logging.WARNING)
                     split.data['opt_out'] = True
@@ -278,6 +268,24 @@ class PreprocessDataState(BlankState):
 
         toc = time.perf_counter()
         self.app.internal['timing_preprocessing'] = toc - tic
+
+        config: Config = self.app.internal.get('config')
+        parameters: Parameters = config.parameters
+        for split in split_manager:
+            if not split.data.get('opt_out'):
+                # generate model attribute
+                if self.app.coordinator:
+                    model_cls = Training
+                else:
+                    model_cls = LocalTraining
+
+                model = model_cls(data=split.data['training_data'],
+                                  alpha=parameters.alpha,
+                                  fit_intercept=parameters.fit_intercept,
+                                  max_iter=parameters.max_iter)
+                split.data['model'] = model
+
+                del split.data['training_data']
 
         return super().run()
 
