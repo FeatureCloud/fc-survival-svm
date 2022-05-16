@@ -237,7 +237,7 @@ class ReadDataState(BlankState):
 class PreprocessDataState(BlankState):
 
     def run(self):
-        self.update(message='Check survival times for zero and negative timepoints', progress=0.08)
+        self.update(message='Check times for zero and neg. timepoints', progress=0.08)
         split_manager = self.app.internal.get('split_manager')
         for split in split_manager:
             if not split.data.get('opt_out'):
