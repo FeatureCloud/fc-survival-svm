@@ -4,6 +4,7 @@ import threading
 import time
 import traceback
 from time import sleep
+import textwrap
 
 from typing import Dict, List, Tuple
 
@@ -174,7 +175,7 @@ class App:
         self.current_state = transition[1]
 
     def log(self, msg, level=logging.INFO):
-        logging.log(level, msg)
+        logging.log(level, '\n'.join(['', *textwrap.wrap(str(msg), 120)]))
 
 
 class AppState:
