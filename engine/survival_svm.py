@@ -754,4 +754,5 @@ class WriteResult(BlankState):
             with open(meta_output_path, "w") as fh:
                 yaml.dump(metadata, fh)
 
+        self.update(message='Done', progress=1)
         return super().run()
