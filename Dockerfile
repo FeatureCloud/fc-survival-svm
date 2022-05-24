@@ -9,7 +9,7 @@ COPY server_config/nginx /etc/nginx/sites-available/default
 COPY server_config/docker-entrypoint.sh /entrypoint.sh
 
 RUN conda config --append channels conda-forge
-RUN conda install -y -c sebp scikit-survival
+RUN conda install -y -c sebp scikit-survival==0.16.0
 
 COPY requirements.txt /app/requirements.txt
 RUN pip3 install -r ./app/requirements.txt
