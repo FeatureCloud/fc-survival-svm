@@ -672,7 +672,7 @@ class WriteResult(BlankState):
 
             # write pickled model
             pickle_output_path = os.path.join(split.output_dir, config.model_output)
-            logging.debug(f"Writing model to {pickle_output_path}")
+            self.app.log(f"Writing model to {pickle_output_path}")
             with open(pickle_output_path, "wb") as fh:
                 pickle.dump(sksurv_obj, fh)
 
@@ -749,7 +749,7 @@ class WriteResult(BlankState):
 
             # write model parameters as meta file
             meta_output_path = os.path.join(split.output_dir, config.meta_output)
-            logging.debug(f"Writing metadata to {meta_output_path}")
+            self.app.log(f"Writing metadata to {meta_output_path}", level=logging.DEBUG)
 
             with open(meta_output_path, "w") as fh:
                 yaml.dump(metadata, fh)
