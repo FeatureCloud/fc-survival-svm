@@ -7,7 +7,7 @@ from api.http_web import web_server
 from app import app
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s %(levelname)s [%(filename)s %(name)s %(funcName)s (%(lineno)d)]: %(message)s",
 )
 
