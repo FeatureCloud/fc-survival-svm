@@ -684,7 +684,7 @@ class WriteResult(BlankState):
             for feature_name, feature_weight in zip(features, weights):
                 beta[feature_name] = feature_weight
             bias = None
-            if sksurv_obj.fit_intercept is not None:
+            if sksurv_obj.fit_intercept:
                 bias = float(sksurv_obj.intercept_)
 
             # unpack timings
