@@ -4,6 +4,7 @@ import threading
 import time
 import traceback
 from time import sleep
+import textwrap
 
 from typing import Dict, List, Tuple
 
@@ -174,7 +175,7 @@ class App:
         self.current_state = transition[1]
 
     def log(self, msg, level=logging.INFO):
-        logging.log(level, msg)
+        logging.log(level, '\n'.join(['', *textwrap.wrap(str(msg), 120)]))
 
 
 class AppState:
@@ -246,7 +247,7 @@ class AppState:
 
     def update(self, message=None, progress=None, state=None):
         if message and len(message) > 40:
-            logging.debug(f"Truncated a long message. Original message: {message!r}")
+            self.app.log(f"Truncated a long message. Original message: {message!r}", logging.DEBUG)
             message = message[:39]
         if progress is not None and (progress < 0 or progress > 1):
             raise RuntimeError('progress must be between 0 and 1')

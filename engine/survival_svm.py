@@ -15,7 +15,7 @@ from sksurv.svm import FastSurvivalSVM
 import logic.data
 from app.survival_svm import settings
 from app.survival_svm.settings import INPUT_DIR, CONFIG_FILE_NAME, OUTPUT_DIR
-from engine.app import AppState, STATE_RUNNING, STATE_ACTION, PARTICIPANT, COORDINATOR
+from engine.app import AppState, STATE_RUNNING, STATE_ACTION, STATE_ERROR, PARTICIPANT, COORDINATOR
 from engine.exchanged_parameters import SyncSignalClient, SyncSignalCoordinator
 from logic.config import Config, Parameters
 from logic.data import read_survival_data, SurvivalData
@@ -212,6 +212,8 @@ class ReadDataState(BlankState):
                 label_event=config.label_event, label_time_to_event=config.label_time_to_event,
                 event_truth_value=config.event_truth_value)
 
+            split.data['training_data'] = training_data
+
             # get some metrics about data
             n_samples = training_data.n_samples
             n_censored = training_data.n_censored
@@ -226,18 +228,6 @@ class ReadDataState(BlankState):
                 self.app.log(f'Number of samples is below safe limit for split {split.input_dir}. Opt-out.',
                              level=logging.WARNING)
 
-            # generate model attribute
-            if self.app.coordinator:
-                model_cls = Training
-            else:
-                model_cls = LocalTraining
-
-            model = model_cls(data=training_data,
-                              alpha=parameters.alpha,
-                              fit_intercept=parameters.fit_intercept,
-                              max_iter=parameters.max_iter)
-            split.data['model'] = model
-
         toc = time.perf_counter()
         self.app.internal['timing_read_data'] = toc - tic
 
@@ -247,6 +237,19 @@ class ReadDataState(BlankState):
 class PreprocessDataState(BlankState):
 
     def run(self):
+        self.update(message='Check times for zero and neg. timepoints', progress=0.08)
+        split_manager = self.app.internal.get('split_manager')
+        for split in split_manager:
+            if not split.data.get('opt_out'):
+                training_data: SurvivalData = split.data.get('training_data')
+
+                dropped_rows = training_data.drop_negative_and_zero_timepoints()
+                if dropped_rows > 0:
+                    self.update(
+                        message=f'Dropped {dropped_rows} samples with zero or negative timepoints in {split.name}',
+                        state=STATE_RUNNING
+                    )
+
         self.update(message='Log-transform survival times', progress=0.08)
 
         tic = time.perf_counter()
@@ -254,10 +257,10 @@ class PreprocessDataState(BlankState):
         split_manager = self.app.internal.get('split_manager')
         for split in split_manager:
             if not split.data.get('opt_out'):
-                model: LocalTraining = split.data.get('model')
+                training_data: SurvivalData = split.data.get('training_data')
 
                 try:
-                    model.data.log_transform_times()
+                    training_data.log_transform_times()
                 except ValueError as e:
                     self.app.log(str(e), level=logging.WARNING)
                     split.data['opt_out'] = True
@@ -265,6 +268,24 @@ class PreprocessDataState(BlankState):
 
         toc = time.perf_counter()
         self.app.internal['timing_preprocessing'] = toc - tic
+
+        config: Config = self.app.internal.get('config')
+        parameters: Parameters = config.parameters
+        for split in split_manager:
+            if not split.data.get('opt_out'):
+                # generate model attribute
+                if self.app.coordinator:
+                    model_cls = Training
+                else:
+                    model_cls = LocalTraining
+
+                model = model_cls(data=split.data['training_data'],
+                                  alpha=parameters.alpha,
+                                  fit_intercept=parameters.fit_intercept,
+                                  max_iter=parameters.max_iter)
+                split.data['model'] = model
+
+                del split.data['training_data']
 
         return super().run()
 
@@ -651,7 +672,7 @@ class WriteResult(BlankState):
 
             # write pickled model
             pickle_output_path = os.path.join(split.output_dir, config.model_output)
-            logging.debug(f"Writing model to {pickle_output_path}")
+            self.app.log(f"Writing model to {pickle_output_path}")
             with open(pickle_output_path, "wb") as fh:
                 pickle.dump(sksurv_obj, fh)
 
@@ -663,7 +684,7 @@ class WriteResult(BlankState):
             for feature_name, feature_weight in zip(features, weights):
                 beta[feature_name] = feature_weight
             bias = None
-            if sksurv_obj.fit_intercept is not None:
+            if sksurv_obj.fit_intercept:
                 bias = float(sksurv_obj.intercept_)
 
             # unpack timings
@@ -728,9 +749,10 @@ class WriteResult(BlankState):
 
             # write model parameters as meta file
             meta_output_path = os.path.join(split.output_dir, config.meta_output)
-            logging.debug(f"Writing metadata to {meta_output_path}")
+            self.app.log(f"Writing metadata to {meta_output_path}", level=logging.DEBUG)
 
             with open(meta_output_path, "w") as fh:
                 yaml.dump(metadata, fh)
 
+        self.update(message='Done', progress=1)
         return super().run()
