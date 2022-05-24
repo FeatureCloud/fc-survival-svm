@@ -65,7 +65,8 @@ fc_survival_svm:
     sep: ","  # separator used in csv files
     label_survival_time: "tte"  # label for the time to event column
     label_event: "event"  # label for the event column
-    event_truth_value: True  # optional, default=True; value of an entry in the event column when an event occurred
+    event_value: '1'  # optional, default='1'; value of an entry in the event column when an event occurred
+    event_censored_value: '0'  # optional, default='0'; value of an entry in the event column when entry is censored
   split:
     mode: directory  # directory if cross validation was used before, else file
     dir: "cv"  # cv if cross validation app was used before, else .

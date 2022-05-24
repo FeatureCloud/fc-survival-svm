@@ -12,7 +12,8 @@ fc_survival_svm:
     sep: ","
     label_survival_time: "time"
     label_event: "status"
-    event_truth_value: 1  # optional, default=True; value of an entry in the event column when a event occurred
+    event_value: '1'  # optional, default='1'; value of an entry in the event column when an event occurred
+    event_censored_value: '0'  # optional, default='0'; value of an entry in the event column when censored
   split:
     mode: directory  # directory if cross validation was used before, else file
     dir: cv  # data if cross validation app was used before, else .

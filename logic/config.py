@@ -52,7 +52,8 @@ class Config:
         self.sep: Optional[str] = None
         self.label_time_to_event: Optional[str] = None
         self.label_event: Optional[str] = None
-        self.event_truth_value: Optional[str] = None
+        self.event_value: Optional[str] = None
+        self.event_censored_value: Optional[str] = None
 
         self.mode: Optional[SplitMode] = None
         self.dir = "."
@@ -82,7 +83,8 @@ class Config:
             config.sep = config_yml['format']['sep']
             config.label_time_to_event = config_yml['format']['label_survival_time']
             config.label_event = config_yml['format']['label_event']
-            config.event_truth_value = config_yml['format'].get('event_truth_value', True)  # default value
+            config.event_value = str(config_yml['format'].get('event_value', '1'))
+            config.event_censored_value = str(config_yml['format'].get('event_censored_value', '0'))
 
             if config_yml.get('svm'):
                 config.parameters.alpha = config_yml['svm']['alpha']
@@ -120,9 +122,13 @@ class Config:
         config.label_time_to_event = form.get('label_time_to_event')
         config.label_event = form.get('label_event')
         if form.get('event_truth_value') != "":
-            config.event_truth_value = form.get('event_truth_value', True)  # default value
+            config.event_value = str(form.get('event_value', '1'))  # default value
         else:
-            config.event_truth_value = True  # default value
+            config.event_value = '1'  # default value
+        if form.get('event_censored_value') != "":
+            config.event_censored_value = str(form.get('event_censored_value', '0'))  # default value
+        else:
+            config.event_censored_value = '0'  # default value
 
         if is_coordinator:
             config.parameters.alpha = int(form.get('alpha'))

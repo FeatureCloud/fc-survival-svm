@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Tuple
 
 import numpy as np
 import pandas as pd
@@ -16,12 +16,23 @@ def get_column(dataframe: pd.DataFrame, col_name: str) -> pd.Series:
         raise e
 
 
-def event_value_to_truth_array(event: NDArray[Any], truth_value: Any) -> NDArray[Bool]:
-    if truth_value is True and np.issubdtype(event.dtype, np.bool_):  # nothing to do...
-        return event
+def event_value_to_truth_array(event: NDArray[str], truth_value: str, censored_value: str) -> Tuple[NDArray[Bool], NDArray[Bool]]:
+    """
+    Return truth array given a value where the event is recorded and a value where the event is censored.
+    Other rows will be dropped.
 
+    :return: Event value array, array marking rows to keep
+    """
     truth_array = (event == truth_value)
-    return truth_array
+    censored_array = (event == censored_value)
+
+    # get rows where the value is event value or censored
+    has_known_value = truth_array | censored_array
+    n_to_be_dropped = (~has_known_value).sum()
+    # drop rows where value is unknown
+    if n_to_be_dropped > 0:
+        logging.warning(f"Dropping {n_to_be_dropped} rows due to unknown event value")
+    return truth_array[has_known_value], has_known_value
 
 
 def read_data_frame(path, sep):
@@ -108,13 +119,16 @@ class SurvivalData:
 
 def read_survival_data_np(path, sep=',',
                           label_event='status', label_time_to_event='time_to_event',
-                          event_truth_value=1):
+                          event_value='1', event_censored_value='0'):
     X: pd.DataFrame = read_data_frame(path, sep=sep)
 
     event = get_column(X, label_event)
-    event_indicator = event_value_to_truth_array(event.to_numpy(), event_truth_value)
-    time_to_event = get_column(X, label_time_to_event)
+    event_indicator, keep = event_value_to_truth_array(event.to_numpy(dtype=np.str), event_value, event_censored_value)
+
+    time_to_event = get_column(X, label_time_to_event)[keep]
     X.drop([label_event, label_time_to_event], axis=1, inplace=True)
+
+    X = X[keep]
 
     y = np.zeros(X.shape[0], dtype=[('event_indicator', np.bool_), ('time_to_event', np.float64)])
     y['event_indicator'] = event_indicator
@@ -125,8 +139,8 @@ def read_survival_data_np(path, sep=',',
 
 def read_survival_data(path, sep=',',
                        label_event='status', label_time_to_event='time_to_event',
-                       event_truth_value=1) -> SurvivalData:
+                       event_value='1', event_censored_value='0') -> SurvivalData:
     X, y = read_survival_data_np(path, sep=sep,
                                  label_event=label_event, label_time_to_event=label_time_to_event,
-                                 event_truth_value=event_truth_value)
+                                 event_value=event_value, event_censored_value=event_censored_value)
     return SurvivalData(X, y)
