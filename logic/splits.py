@@ -54,14 +54,28 @@ class SplitManager:
                    f'output_dir={self.output_dir}, ' \
                    f'data={self.data}>'
 
+    def add_split(self, split, output_dir):
+        self.splits.append(split)
+        output_dir = self._create_output_directory(output_dir)
+        self.output_dirs[split] = output_dir
+        self.data[split] = {}
+
+    def get_split_env(self, split):
+        return self.Env(split, self.output_dirs.get(split), self.data.get(split))
+
     def __iter__(self):
         for split in self.splits:
-            yield self.Env(split, self.output_dirs.get(split), self.data.get(split))
+            yield self.get_split_env(split)
+
+    @staticmethod
+    def _create_output_directory(split):
+        output_dir = split.replace(INPUT_DIR, OUTPUT_DIR)
+        os.makedirs(output_dir, exist_ok=True)
+        return output_dir
 
     def _create_output_directories(self):
         for split in self.splits:
-            output_dir = split.replace(INPUT_DIR, OUTPUT_DIR)
-            os.makedirs(output_dir, exist_ok=True)
+            output_dir = self._create_output_directory(split)
             self.output_dirs[split] = output_dir
 
     def _create_data(self):
