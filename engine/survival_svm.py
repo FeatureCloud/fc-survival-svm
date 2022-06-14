@@ -4,7 +4,7 @@ import pickle
 import shutil
 import time
 from time import sleep
-from typing import Type, Dict, Optional, List, Union, Tuple
+from typing import Dict, Optional, List, Union, Tuple
 import pandas as pd
 import numpy as np
 
@@ -17,11 +17,10 @@ from sksurv.svm import FastSurvivalSVM
 import logic.data
 from app.survival_svm import settings
 from app.survival_svm.settings import INPUT_DIR, CONFIG_FILE_NAME, OUTPUT_DIR
-from engine.app import AppState, STATE_RUNNING, STATE_ACTION, STATE_ERROR, PARTICIPANT, COORDINATOR
-from engine.exchanged_parameters import SyncSignalClient, SyncSignalCoordinator
+from engine.app import AppState, STATE_RUNNING, STATE_ACTION, PARTICIPANT, COORDINATOR
 from logic.config import Config, Parameters
 from logic.data import read_survival_data, read_survival_data_np, SurvivalData
-from logic.model import Training, LocalTraining
+from logic.model import Training, LocalTraining, create_feature_importance
 from logic.splits import SplitManager
 from optimization.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
 
@@ -233,7 +232,7 @@ class ReadDataState(BlankState):
             if opt_out:
                 self.app.log(f'Number of samples is below safe limit for split {split.input_dir}. Opt-out.',
                              level=logging.WARNING)
-        
+
         # handle overall model
         # the overall model trains on train and test data joined from any of the splits as reference
         split = split_manager.get_split_env('OVERALL')
@@ -276,8 +275,7 @@ class ReadDataState(BlankState):
         split.data['opt_finished'] = False
         if opt_out:
             self.app.log(f'Number of samples is below safe limit for split {split.input_dir}. Opt-out.',
-                            level=logging.WARNING)
-
+                         level=logging.WARNING)
 
         toc = time.perf_counter()
         self.app.internal['timing_read_data'] = toc - tic
@@ -365,7 +363,7 @@ class SendDataAttributes(DependingOnTypeState):
 
         json_encoded_str = jsonpickle.encode(data_attributes)
         json_encoded_bytes = json_encoded_str.encode()
-        self.app.log(json_encoded_str, level=logging.DEBUG)
+        # self.app.log(json_encoded_str, level=logging.DEBUG)
         self.send_data_to_coordinator(json_encoded_bytes, use_smpc=config.enable_smpc)
 
         if self.app.coordinator:
@@ -389,12 +387,12 @@ class InitOptimizer(BlankState):
             smpc_data_attributes = jsonpickle.decode(self.await_data())
         else:
             data: List[Tuple[str, str]] = self.gather_data()
-            self.app.log(f'data: {data}')
+            # self.app.log(f'data: {data}')
             data: List[Dict[str, Dict[str, Union[int, float]]]] = [jsonpickle.decode(d[0]) for d in data]
-            self.app.log(f'data_decoded: {data}')
+            # self.app.log(f'data_decoded: {data}')
             smpc_data_attributes = split_manager.add_int_values_in_split_dictionaries(data)
 
-        self.app.log(smpc_data_attributes, level=logging.DEBUG)
+        # self.app.log(smpc_data_attributes, level=logging.DEBUG)
 
         self.update(message='Initialize optimization', progress=0.10)
 
@@ -485,7 +483,6 @@ class SendRequest(BlankState):
 
         split_manager: SplitManager = self.app.internal.get('split_manager')
         for split in split_manager:
-            self.app.log(split)
             if split.data.get('opt_finished'):
                 self.app.log(f'continue')
                 continue
@@ -498,7 +495,7 @@ class SendRequest(BlankState):
             else:
                 self.app.log(f'result')
                 result: OptimizeResult = optimizer.result
-                self.app.log(f'{result}')
+                # self.app.log(f'{result}')
                 if not result.success:  # trying to recover from failure
                     self.app.log(f'failure')
                     parameters: Parameters = config.parameters
@@ -515,7 +512,7 @@ class SendRequest(BlankState):
                         opt_times = result.timings
                         self.app.log(opt_times)
                         opt_times_list = [opt_times[0], opt_times[1], opt_times[2]]
-                        self.app.log(opt_times_list)
+                        # self.app.log(opt_times_list)
                         old_times = split.data.get('timings_from_recovered_runs', (0, 0, 0))
                         opt_times_list[0] += old_times[0]
                         opt_times_list[1] += old_times[1]
@@ -561,7 +558,7 @@ class ListenRequest(DependingOnTypeState):
 
         requests: Dict[str, Optional[Dict[str, List[float]]]] = self.await_data()
         requests = jsonpickle.decode(requests)
-        self.app.log(requests, level=logging.DEBUG)
+        # self.app.log(requests, level=logging.DEBUG)
 
         self.update(message=f'Fulfilling computation requests [{n_exchange}]')
         responses = {}
@@ -581,7 +578,7 @@ class ListenRequest(DependingOnTypeState):
             request = requests.get(split.name)
             if request is None:
                 continue
-            self.app.log(request, level=logging.DEBUG)
+            # self.app.log(request, level=logging.DEBUG)
 
             if isinstance(request,
                           SteppedEventBasedNewtonCgOptimizer.RequestWDependent):  # request for calculating functions depending on w
@@ -596,7 +593,7 @@ class ListenRequest(DependingOnTypeState):
         if all_finished:
             return self.next_state_opt_finished
 
-        self.app.log(responses, level=logging.DEBUG)
+        # self.app.log(responses, level=logging.DEBUG)
         self.update(message=f'Sending responses [{n_exchange}]')
         self.send_data_to_coordinator(jsonpickle.encode(responses).encode(), use_smpc=config.enable_smpc)
         return super().run()
@@ -615,12 +612,12 @@ class SetResponse(BlankState):
             local_results = jsonpickle.decode(self.await_data())
         else:
             data: List[Tuple[str, str]] = self.gather_data()
-            self.app.log(f'data: {data}')
+            # self.app.log(f'data: {data}')
             data: List[Dict[str, Tuple[float, List[float]]]] = [jsonpickle.decode(d[0]) for d in data]
-            self.app.log(f'data_decoded: {data}')
+            # self.app.log(f'data_decoded: {data}')
             local_results = split_manager.add_answer_values_in_split_dictionaries(data)
 
-        self.app.log(f'local_results: {local_results}')
+        # self.app.log(f'local_results: {local_results}')
 
         self.update(message=f'Aggregate [{n_exchange}]')
         for split in split_manager:
@@ -736,6 +733,12 @@ class WriteResult(BlankState):
             training_data: SurvivalData = model.data
             features = training_data.feature_names
             weights = sksurv_obj.coef_.tolist()
+            if split.name == 'OVERALL':
+                feature_importance_plot, feature_importance_tsv = create_feature_importance(sksurv_obj, features, 20)
+                feature_importance_plot.savefig(
+                    os.path.join(split.output_dir, 'feature_importance.png'), bbox_inches='tight')
+                feature_importance_plot.savefig(os.path.join(split.output_dir, 'feature_importance.pdf'), bbox_inches='tight')
+                feature_importance_tsv.to_csv(os.path.join(split.output_dir, 'feature_importance.tsv'), sep='\t')
             for feature_name, feature_weight in zip(features, weights):
                 beta[feature_name] = feature_weight
             bias = None

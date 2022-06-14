@@ -14,7 +14,6 @@ from typing import List, Optional, Union, Callable, Type
 import numpy as np
 import scipy.optimize
 from nptyping import NDArray, Float64
-from numpy import ndarray
 from scipy.optimize.optimize import OptimizeResult
 
 

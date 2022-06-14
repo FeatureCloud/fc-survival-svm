@@ -1,7 +1,6 @@
 import contextlib
 from unittest import TestCase
 
-import numpy
 import numpy as np
 from hypothesis import given, settings
 import hypothesis.extra.numpy as hxn

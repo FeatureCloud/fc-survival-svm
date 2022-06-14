@@ -10,4 +10,6 @@ numpy
 nptyping==1.4.4
 pandas
 scipy
+seaborn
 scikit-learn
+matplotlib

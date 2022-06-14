@@ -9,6 +9,10 @@ from sksurv.svm import FastSurvivalSVM
 
 from optimization.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer, OptimizeResult
 from logic.data import SurvivalData
+import pandas as pd
+
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 
 class LocalTraining:
@@ -194,3 +198,30 @@ class Training(LocalTraining):
             f_val=f_val,
             g_val=g_val,
         )
+
+
+def create_feature_importance(classifier, feature_names: list, top_features: int = 10):
+    def colors_from_values(values, palette_name):
+        # normalize the values to range [0, 1]
+        normalized = (values - min(values)) / (max(values) - min(values))
+        # convert to indices
+        indices = np.round(normalized * (len(values) - 1)).astype(np.int32)
+        # use the indices to get the colors
+        palette = sns.color_palette(palette_name, len(values))
+        return np.array(palette).take(indices, axis=0)
+
+    coef = classifier.coef_.ravel()
+    coef_df = pd.DataFrame({"Feature": feature_names, "Coefficient": coef}).sort_values(by="Coefficient",
+                                                                                        ascending=False)
+
+    coef_df = coef_df.iloc[np.r_[0:top_features, -top_features:0]]
+
+    sns.set("talk", font_scale=1.2)
+    sns.set_style("whitegrid")
+    fig, ax = plt.subplots(1, 1, figsize=(top_features, round(top_features / 2, 1)))
+    sns.barplot(data=coef_df, x="Feature", y="Coefficient", ax=ax,
+                palette=colors_from_values(coef_df['Coefficient'].abs(), "flare"))
+    ax.legend([], [], frameon=False)
+    ax.xaxis.set_tick_params(rotation=90)
+
+    return fig, coef_df
