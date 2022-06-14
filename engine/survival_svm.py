@@ -5,6 +5,8 @@ import shutil
 import time
 from time import sleep
 from typing import Type, Dict, Optional, List, Union, Tuple
+import pandas as pd
+import numpy as np
 
 import jsonpickle
 import jsonpickle.ext.numpy as jsonpickle_numpy
@@ -18,7 +20,7 @@ from app.survival_svm.settings import INPUT_DIR, CONFIG_FILE_NAME, OUTPUT_DIR
 from engine.app import AppState, STATE_RUNNING, STATE_ACTION, STATE_ERROR, PARTICIPANT, COORDINATOR
 from engine.exchanged_parameters import SyncSignalClient, SyncSignalCoordinator
 from logic.config import Config, Parameters
-from logic.data import read_survival_data, SurvivalData
+from logic.data import read_survival_data, read_survival_data_np, SurvivalData
 from logic.model import Training, LocalTraining
 from logic.splits import SplitManager
 from optimization.stepwise_newton_cg import SteppedEventBasedNewtonCgOptimizer
@@ -175,11 +177,12 @@ class InitSplitManager(BlankState):
 
     def run(self):
         self.update(message='Initialize split manager', progress=0.06)
-        config = self.app.internal.get('config')
+        config: Config = self.app.internal.get('config')
 
         self.app.log(f'MODE: {config.mode}', level=logging.DEBUG)
         self.app.log(f'DIR: {config.dir}', level=logging.DEBUG)
         split_manager = SplitManager(mode=config.mode, directory_name=config.dir)
+        split_manager.add_split(split='OVERALL', output_dir=OUTPUT_DIR)
         self.app.internal['split_manager'] = split_manager
         self.app.log(self.app.internal.get('split_manager'), level=logging.DEBUG)
 
@@ -203,6 +206,9 @@ class ReadDataState(BlankState):
         parameters: Parameters = config.parameters
         split_manager = self.app.internal.get('split_manager')
         for split in split_manager:
+            if split.name == 'OVERALL':
+                continue
+
             training_data_path = os.path.join(split.input_dir, config.train_filename)
             if not os.path.isfile(training_data_path):
                 raise RuntimeError(f'No training data at {training_data_path}')
@@ -227,6 +233,51 @@ class ReadDataState(BlankState):
             if opt_out:
                 self.app.log(f'Number of samples is below safe limit for split {split.input_dir}. Opt-out.',
                              level=logging.WARNING)
+        
+        # handle overall model
+        # the overall model trains on train and test data joined from any of the splits as reference
+        split = split_manager.get_split_env('OVERALL')
+        reference_split = split_manager.get_split_env(split_manager.splits[0])
+        self.app.log(f"REFSPLIT {reference_split}")
+
+        training_data_path = os.path.join(reference_split.input_dir, config.train_filename)
+        if not os.path.isfile(training_data_path):
+            raise RuntimeError(f'No training data at {training_data_path}')
+
+        X_train, y_train = read_survival_data_np(
+            training_data_path, sep=config.sep,
+            label_event=config.label_event, label_time_to_event=config.label_time_to_event,
+            event_value=config.event_value, event_censored_value=config.event_censored_value)
+
+        test_data_path = os.path.join(reference_split.input_dir, config.test_filename)
+        if not os.path.isfile(test_data_path):
+            raise RuntimeError(f'No test data at {test_data_path}')
+
+        X_test, y_test = read_survival_data_np(
+            test_data_path, sep=config.sep,
+            label_event=config.label_event, label_time_to_event=config.label_time_to_event,
+            event_value=config.event_value, event_censored_value=config.event_censored_value)
+
+        X_concat = pd.concat([X_train, X_test])
+        y_concat = np.concatenate([y_train, y_test])
+
+        training_data = SurvivalData(X_concat, y_concat)
+        split.data['training_data'] = training_data
+
+        # get some metrics about data
+        n_samples = training_data.n_samples
+        n_censored = training_data.n_censored
+        self.app.log(split.name, level=logging.DEBUG)
+        self.app.log(f'samples = {n_samples}', level=logging.DEBUG)
+        self.app.log(f'censored = {n_censored}', level=logging.DEBUG)
+
+        opt_out = n_samples < config.min_samples
+        split.data['opt_out'] = opt_out
+        split.data['opt_finished'] = False
+        if opt_out:
+            self.app.log(f'Number of samples is below safe limit for split {split.input_dir}. Opt-out.',
+                            level=logging.WARNING)
+
 
         toc = time.perf_counter()
         self.app.internal['timing_read_data'] = toc - tic
@@ -618,6 +669,9 @@ class GeneratePredictions(BlankState):
             if svm is None:
                 continue
 
+            if split.name == 'OVERALL':
+                continue  # we do not have test data for the overall model
+
             test_data_path = os.path.join(split.input_dir, config.test_filename)
             X_test, y_test = logic.data.read_survival_data_np(
                 test_data_path, sep=config.sep,
@@ -656,10 +710,11 @@ class WriteResult(BlankState):
         split_manager: SplitManager = self.app.internal.get('split_manager')
         for split in split_manager:
             # copy inputs to outputs
-            shutil.copyfile(os.path.join(split.input_dir, config.train_filename),
-                            os.path.join(split.output_dir, config.train_output))
-            shutil.copyfile(os.path.join(split.input_dir, config.test_filename),
-                            os.path.join(split.output_dir, config.test_output))
+            if split.name != 'OVERALL':
+                shutil.copyfile(os.path.join(split.input_dir, config.train_filename),
+                                os.path.join(split.output_dir, config.train_output))
+                shutil.copyfile(os.path.join(split.input_dir, config.test_filename),
+                                os.path.join(split.output_dir, config.test_output))
 
             # get model
             model: LocalTraining = split.data.get('model')
