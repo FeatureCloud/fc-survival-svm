@@ -214,7 +214,7 @@ def create_feature_importance(classifier, feature_names: list, top_features: int
     coef_df = pd.DataFrame({"Feature": feature_names, "Coefficient": coef}).sort_values(by="Coefficient",
                                                                                         ascending=False)
 
-    coef_df = coef_df.iloc[np.r_[0:top_features, -top_features:0]]
+    # coef_df = coef_df.iloc[np.r_[0:top_features, -top_features:0]]
 
     sns.set("talk", font_scale=1.2)
     sns.set_style("whitegrid")
